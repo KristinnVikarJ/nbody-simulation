@@ -1,3 +1,5 @@
+//mod quad_tree;
+
 use once_cell::sync::OnceCell;
 use std::borrow::Borrow;
 use std::ops;
@@ -19,7 +21,7 @@ use winit_input_helper::WinitInputHelper;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.001;
+const STEP_SIZE: f64 = 0.01; //0.001;
 
 static WORLD: OnceCell<RwLock<World>> = OnceCell::new();
 
@@ -132,6 +134,43 @@ impl Vec2 {
     fn new() -> Self {
         Self { x: 0f64, y: 0f64 }
     }
+
+    fn new_from(x: f64, y: f64) -> Self {
+        Vec2 { x, y }
+    }
+
+    fn sub(self: &Vec2, other: &Vec2) -> Vec2 {
+        Vec2::new_from(self.x - other.x, self.y - other.y)
+    }
+
+    fn add(self: &Vec2, other: &Vec2) -> Vec2 {
+        Vec2::new_from(self.x + other.x, self.y + other.y)
+    }
+
+    fn mul(self: &Vec2, scalar: f64) -> Vec2 {
+        Vec2::new_from(self.x * scalar, self.y * scalar)
+    }
+
+    fn dot(self: &Vec2, other: &Vec2) -> f64 {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn length(self: &Vec2) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn normalize(self: &Vec2) -> Vec2 {
+        let length = self.length();
+        // Roughly zero
+        if length <= 0.0001 {
+            return Vec2::new();
+        }
+        Vec2::new_from(self.x / length, self.y / length)
+    }
+}
+
+fn rotate_right(vec: &Vec2) -> Vec2 {
+    Vec2::new_from(vec.y, -vec.x)
 }
 
 impl<R: Borrow<Vec2>> ops::AddAssign<R> for Vec2 {
@@ -197,7 +236,7 @@ fn calculate_gravity(particle1: &Particle, particle2: &Particle) -> Vec2 {
     let ydiff = particle2.position.y - particle1.position.y;
 
     // Validate that we don't have any inf's or NaN etc
-    if !(xdiff+ydiff).is_normal() {
+    if !(xdiff + ydiff).is_normal() {
         return Vec2::new();
     }
 
@@ -205,8 +244,8 @@ fn calculate_gravity(particle1: &Particle, particle2: &Particle) -> Vec2 {
 
     let mut distance = (xdiff * xdiff) + (ydiff * ydiff);
     // Clamp value
-    if distance < 0.1f64 {
-        distance = 0.1f64;
+    if distance < 0.001f64 {
+        distance = 0.001f64;
     }
 
     // According to wolfram
@@ -231,23 +270,33 @@ impl World {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
 
-        let circle1 = Vec2 {x:320.0, y:540.0};
-        let circle2 = Vec2 {x:1600.0, y:540.0};
+        let circle1 = Vec2 { x: 320.0, y: 540.0 };
+        let circle2 = Vec2 {
+            x: 1600.0,
+            y: 540.0,
+        };
 
-        for x in 0..WIDTH-1 {
-            for y in 0..HEIGHT-1 {
-                let pos = Vec2 {x: x as f64, y: y as f64};
-                if dist2(&pos, &circle1) < 1000.0 || dist2(&pos, &circle2) < 1000.0 {
-                    particles.push(Particle {
-                        position: pos,
-                        velocity: Vec2::new(),
-                    });
+        let c1lenr2 = 6000.0;
+
+        for x in 0..WIDTH - 1 {
+            for y in 0..HEIGHT - 1 {
+                let pos = Vec2 {
+                    x: x as f64,
+                    y: y as f64,
+                };
+                if dist2(&pos, &circle2) < c1lenr2 {
+                    if rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 100.0 {
+                        let velocity = rotate_right(&pos.sub(&circle2)).mul(0.4);
+                        particles.push(Particle {
+                            position: pos,
+                            velocity: velocity,
+                        });
+                    }
                 }
             }
         }
-        println!("len: {}", particles.len());
-        
-        for _ in 0..2_000 {
+
+        for _ in 0..1_000 {
             particles.push(Particle {
                 position: Vec2 {
                     x: rng.gen_range(0f64..WIDTH as f64),
@@ -259,8 +308,10 @@ impl World {
                 },
             });
         }
-        /* 
-        */
+
+        println!("len: {}", particles.len());
+        /*
+         */
         Self { particles }
     }
 
@@ -298,7 +349,7 @@ impl World {
             pixel[0] = 0x00; // R
             pixel[1] = 0x00; // G
             pixel[2] = 0x00; // B
-            pixel[3] = 0xff; // A
+            pixel[3] = 0x00; // A
         }
         for particle in self.particles.iter() {
             if !within_bounds(&particle.position) {
@@ -307,11 +358,15 @@ impl World {
 
             let offset =
                 ((particle.position.y as u32 * WIDTH) + particle.position.x as u32) as usize * 4;
-            let velocity = ((particle.velocity.x.abs()+particle.velocity.y.abs())*10.0) as u8;
+            let velocity = 0x10
+                + (((particle.velocity.x.abs() + particle.velocity.y.abs()) * 10.0) as u8)
+                    .min(0xef);
             frame[offset] = 0xff; // R
-            frame[offset + 1] = 0xff; // G
-            frame[offset + 2] = 0xff; // B
-            frame[offset + 3] = 0x10 + velocity.min(0xef); // A
+            frame[offset + 1] = 0xff - velocity; // G
+            frame[offset + 2] = 0xff - velocity; // B
+            if frame[offset + 3] < 0xff && frame[offset + 3] + 10 > frame[offset + 3] {
+                frame[offset + 3] += 10; // A
+            }
         }
     }
 }
