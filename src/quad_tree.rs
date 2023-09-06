@@ -88,6 +88,8 @@ impl QuadTree {
                         points: ref inner_points,
                     } => {
                         // TODO: make both account for mass
+                        // TODO: Optimization? we're calling particle.read() on all inserts
+                        // Maybe we should be doing this math once in the end instead of repeatedly
                         let sum_vec: Vec2 = inner_points
                             .iter()
                             .map(|particle| {
@@ -96,7 +98,7 @@ impl QuadTree {
                             })
                             .sum();
                         self.total_mass += 1.0;
-                        self.center_of_gravity = sum_vec;
+                        self.center_of_gravity = sum_vec.div(self.total_mass);
                     }
                     QuadTreeType::Root {
                         count: _,
@@ -127,10 +129,10 @@ impl QuadTree {
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
                 let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
-                let p = point.clone();
                 let north;
                 let west;
                 {
+                    let p = point.clone();
                     let punlocked = p.read().unwrap();
                     north = punlocked.position.y <= vert_half;
                     west = punlocked.position.x <= hori_half;

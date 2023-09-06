@@ -25,7 +25,7 @@ use crate::quad_tree::Rectangle;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.001;
+const STEP_SIZE: f64 = 0.0005;
 
 static WORLD: OnceCell<RwLock<World>> = OnceCell::new();
 
@@ -373,7 +373,7 @@ impl World {
         self.rebuild_tree();
         let acceleration: Vec<Vec2> = self
             .particles
-            .iter()
+            .par_iter()
             .map(|locked_particle| {
                 let particle = locked_particle.read().unwrap();
                 let mut current = &self.particle_tree;
@@ -448,12 +448,61 @@ impl World {
         }
     }
 
+    fn draw_tree(&self, node: &QuadTree, frame: &mut [u8]) {
+        for x in [
+            (node.boundary.offset.x as usize),
+            ((node.boundary.offset.x + node.boundary.width - 1.0) as usize),
+        ] {
+            for y in (node.boundary.offset.y as usize)
+                ..((node.boundary.offset.y + node.boundary.height) as usize)
+            {
+                let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                frame[offset] = 0xff; // R
+                frame[offset + 1] = 0xff; // G
+                frame[offset + 2] = 0xff; // B
+                frame[offset + 3] = 0xff; // A
+            }
+        }
+        for x in (node.boundary.offset.x as usize)
+            ..((node.boundary.offset.x + node.boundary.width) as usize)
+        {
+            for y in [
+                (node.boundary.offset.y as usize),
+                ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
+            ] {
+                let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                frame[offset] = 0xff; // R
+                frame[offset + 1] = 0xff; // G
+                frame[offset + 2] = 0xff; // B
+                frame[offset + 3] = 0xff; // A
+            }
+        }
+        match &node.tree_type {
+            QuadTreeType::Leaf { points: _ } => {
+                // we done here boys
+            }
+            QuadTreeType::Root {
+                count: _,
+                ne,
+                se,
+                sw,
+                nw,
+            } => {
+                self.draw_tree(ne, frame);
+                self.draw_tree(se, frame);
+                self.draw_tree(sw, frame);
+                self.draw_tree(nw, frame);
+            }
+        }
+    }
+
     /// Draw the `World` state to the frame buffer.
     ///
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
     fn draw(&self, frame: &mut [u8]) {
         // Zero out the pixel buffer
         frame.iter_mut().for_each(|m| *m = 0);
+        //self.draw_tree(&self.particle_tree, frame);
         for locked_particle in self.particles.iter() {
             let particle = locked_particle.read().unwrap();
             if !within_bounds(&particle.position) {
