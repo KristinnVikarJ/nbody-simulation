@@ -25,7 +25,7 @@ use crate::quad_tree::Rectangle;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.0005;
+const STEP_SIZE: f64 = 0.00065;
 
 static WORLD: OnceCell<RwLock<World>> = OnceCell::new();
 
@@ -291,7 +291,7 @@ impl World {
 
         let circle2 = Vec2 { x: 960.0, y: 540.0 }; // Teeny-tiny bit off-center, so we dont have particles inside each other
 
-        let c1lenr2 = 6000.0;
+        let c1lenr2 = 5000.0;
 
         for x in 0..WIDTH - 1 {
             for y in 0..HEIGHT - 1 {
@@ -302,7 +302,7 @@ impl World {
                 if dist2(&pos, &circle1) < c1lenr2
                 //&& rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 100.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.4);
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.2);
                     particles.push(Arc::from(RwLock::from(Particle {
                         position: pos,
                         velocity,
@@ -319,7 +319,7 @@ impl World {
                     y: y as f64 + 0.1,
                 };
                 if dist2(&pos, &circle2) < 2000.0 {
-                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.35);
+                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.1);
                     particles.push(Arc::from(RwLock::from(Particle {
                         position: pos,
                         velocity,
@@ -327,7 +327,6 @@ impl World {
                 }
             }
         }
-
         for _ in 0..1_000 {
             particles.push(Arc::from(RwLock::from(Particle {
                 position: Vec2 {
@@ -340,7 +339,6 @@ impl World {
                 },
             })));
         }
-
         println!("len: {}", particles.len());
 
         let particle_tree = QuadTree::new(Rectangle {
@@ -363,7 +361,7 @@ impl World {
         });
 
         for p in &self.particles {
-            particle_tree.insert(p.clone());
+            particle_tree.insert(p.clone(), &p.read().unwrap().position);
         }
 
         particle_tree.calculate_gravity();

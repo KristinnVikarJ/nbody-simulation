@@ -88,12 +88,12 @@ impl QuadTree {
         }
     }
 
-    pub fn insert(&mut self, point: Arc<RwLock<Particle>>) {
+    pub fn insert(&mut self, point: Arc<RwLock<Particle>>, pos: &Vec2) {
         match self.tree_type {
             QuadTreeType::Leaf { ref mut points } => {
                 if points.len() == QuadTree::MAX_CAPACITY {
                     self.subdivide();
-                    self.insert(point);
+                    self.insert(point, pos);
                 } else {
                     points.push(point.clone());
                 }
@@ -108,23 +108,17 @@ impl QuadTree {
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
                 let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
-                let north;
-                let west;
-                {
-                    let p = point.clone();
-                    let punlocked = p.read().unwrap();
-                    north = punlocked.position.y <= vert_half;
-                    west = punlocked.position.x <= hori_half;
-                }
+                let north = pos.y <= vert_half;
+                let west = pos.x <= hori_half;
 
                 match north {
                     true => match west {
-                        true => nw.insert(point),
-                        false => ne.insert(point),
+                        true => nw.insert(point, pos),
+                        false => ne.insert(point, pos),
                     },
                     false => match west {
-                        true => sw.insert(point),
-                        false => se.insert(point),
+                        true => sw.insert(point, pos),
+                        false => se.insert(point, pos),
                     },
                 };
 
@@ -168,7 +162,7 @@ impl QuadTree {
                     center_of_gravity: self.center_of_gravity.clone(),
                 };
                 for p in points {
-                    new.insert(p.clone());
+                    new.insert(p.clone(), &p.read().unwrap().position);
                 }
                 *self = new;
             }
