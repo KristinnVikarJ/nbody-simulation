@@ -366,6 +366,8 @@ impl World {
             particle_tree.insert(p.clone());
         }
 
+        particle_tree.calculate_gravity();
+
         self.particle_tree = particle_tree;
     }
 
@@ -396,6 +398,7 @@ impl World {
                             se,
                             sw,
                             nw,
+                            total_mass: _,
                         } => {
                             let hori_half =
                                 current.boundary.offset.x + (current.boundary.width / 2.0);
@@ -426,10 +429,21 @@ impl World {
 
                             for tree in [ne, se, sw, nw] {
                                 if !std::ptr::eq(current, tree.as_ref()) {
+                                    let mass = match &tree.tree_type {
+                                        QuadTreeType::Leaf { points } => points.len() as f64,
+                                        QuadTreeType::Root {
+                                            total_mass,
+                                            count: _,
+                                            ne: _,
+                                            se: _,
+                                            sw: _,
+                                            nw: _,
+                                        } => *total_mass,
+                                    };
                                     accel += calculate_gravity(
                                         &particle.position,
                                         &tree.center_of_gravity,
-                                        tree.total_mass,
+                                        mass,
                                     );
                                 }
                             }
@@ -483,6 +497,7 @@ impl World {
             }
             QuadTreeType::Root {
                 count: _,
+                total_mass: _,
                 ne,
                 se,
                 sw,

@@ -33,7 +33,6 @@ impl Rectangle {
 pub struct QuadTree {
     pub boundary: Rectangle,
     pub center_of_gravity: Vec2,
-    pub total_mass: f64,
     pub tree_type: QuadTreeType,
 }
 
@@ -42,6 +41,7 @@ pub enum QuadTreeType {
         points: Vec<Arc<RwLock<Particle>>>,
     },
     Root {
+        total_mass: f64,
         count: usize,
         ne: Box<QuadTree>,
         se: Box<QuadTree>,
@@ -57,7 +57,6 @@ impl QuadTree {
             boundary,
             tree_type: QuadTreeType::Leaf { points: Vec::new() },
             center_of_gravity: Vec2::new(),
-            total_mass: 0.0,
         }
     }
 
@@ -69,8 +68,23 @@ impl QuadTree {
                 se: _,
                 sw: _,
                 nw: _,
+                total_mass: _,
                 count,
             } => return count,
+        }
+    }
+
+    pub fn get_total_mass(&self) -> f64 {
+        match &self.tree_type {
+            QuadTreeType::Leaf { points } => points.len() as f64,
+            QuadTreeType::Root {
+                total_mass,
+                count: _,
+                ne: _,
+                se: _,
+                sw: _,
+                nw: _,
+            } => *total_mass,
         }
     }
 
@@ -83,42 +97,6 @@ impl QuadTree {
                 } else {
                     points.push(point.clone());
                 }
-                match self.tree_type {
-                    QuadTreeType::Leaf {
-                        points: ref inner_points,
-                    } => {
-                        // TODO: make both account for mass
-                        // TODO: Optimization? we're calling particle.read() on all inserts
-                        // Maybe we should be doing this math once in the end instead of repeatedly
-                        let sum_vec: Vec2 = inner_points
-                            .iter()
-                            .map(|particle| {
-                                let part = particle.read().unwrap();
-                                part.position.clone()
-                            })
-                            .sum();
-                        self.total_mass += 1.0;
-                        self.center_of_gravity = sum_vec.div(self.total_mass);
-                    }
-                    QuadTreeType::Root {
-                        count: _,
-                        ref ne,
-                        ref se,
-                        ref sw,
-                        ref nw,
-                    } => {
-                        let total_mass =
-                            ne.total_mass + se.total_mass + sw.total_mass + nw.total_mass;
-
-                        let big_thing = ne.center_of_gravity.mul(ne.total_mass)
-                            + se.center_of_gravity.mul(se.total_mass)
-                            + sw.center_of_gravity.mul(se.total_mass)
-                            + nw.center_of_gravity.mul(nw.total_mass);
-
-                        self.center_of_gravity = big_thing.div(total_mass);
-                        self.total_mass = total_mass;
-                    }
-                }
             }
             QuadTreeType::Root {
                 ref mut ne,
@@ -126,6 +104,7 @@ impl QuadTree {
                 ref mut sw,
                 ref mut nw,
                 ref mut count,
+                total_mass: _,
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
                 let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
@@ -184,9 +163,9 @@ impl QuadTree {
                             new_height,
                         ))),
                         count: points.len(),
+                        total_mass: points.len() as f64,
                     },
                     center_of_gravity: self.center_of_gravity.clone(),
-                    total_mass: self.total_mass,
                 };
                 for p in points {
                     new.insert(p.clone());
@@ -194,6 +173,47 @@ impl QuadTree {
                 *self = new;
             }
             _ => {}
+        }
+    }
+
+    pub fn calculate_gravity(&mut self) {
+        match self.tree_type {
+            QuadTreeType::Leaf { ref points } => {
+                let sum_vec: Vec2 = points
+                    .iter()
+                    .map(|particle| {
+                        let part = particle.read().unwrap();
+                        part.position.clone()
+                    })
+                    .sum();
+                self.center_of_gravity = sum_vec.div(points.len() as f64);
+            }
+            QuadTreeType::Root {
+                count: _,
+                ref mut ne,
+                ref mut se,
+                ref mut sw,
+                ref mut nw,
+                ref mut total_mass,
+            } => {
+                ne.calculate_gravity();
+                se.calculate_gravity();
+                sw.calculate_gravity();
+                nw.calculate_gravity();
+
+                let mass = ne.get_total_mass()
+                    + se.get_total_mass()
+                    + sw.get_total_mass()
+                    + nw.get_total_mass();
+
+                let big_thing = ne.center_of_gravity.mul(ne.get_total_mass())
+                    + se.center_of_gravity.mul(se.get_total_mass())
+                    + sw.center_of_gravity.mul(se.get_total_mass())
+                    + nw.center_of_gravity.mul(nw.get_total_mass());
+
+                self.center_of_gravity = big_thing.div(mass);
+                *total_mass = mass;
+            }
         }
     }
 }
