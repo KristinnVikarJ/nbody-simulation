@@ -25,7 +25,8 @@ use crate::quad_tree::Rectangle;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.00065;
+const STEP_SIZE: f64 = 0.005; //0.00065;
+const MASS_DISTANCE: f64 = 1000.0; // Represents the distance^2 before we estimate, higher values = more accurate but slower
 
 static WORLD: OnceCell<RwLock<World>> = OnceCell::new();
 
@@ -287,9 +288,12 @@ impl World {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
 
-        let circle1 = Vec2 { x: 960.0, y: 540.0 };
+        let circle1 = Vec2 { x: 800.0, y: 540.0 };
 
-        let circle2 = Vec2 { x: 960.0, y: 540.0 }; // Teeny-tiny bit off-center, so we dont have particles inside each other
+        let circle2 = Vec2 {
+            x: 1200.0,
+            y: 540.0,
+        }; // Teeny-tiny bit off-center, so we dont have particles inside each other
 
         let c1lenr2 = 5000.0;
 
@@ -302,7 +306,7 @@ impl World {
                 if dist2(&pos, &circle1) < c1lenr2
                 //&& rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 100.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.2);
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.01);
                     particles.push(Arc::from(RwLock::from(Particle {
                         position: pos,
                         velocity,
@@ -315,11 +319,11 @@ impl World {
         for x in 0..WIDTH - 1 {
             for y in 0..HEIGHT - 1 {
                 let pos = Vec2 {
-                    x: x as f64 + 0.1,
-                    y: y as f64 + 0.1,
+                    x: x as f64,
+                    y: y as f64,
                 };
                 if dist2(&pos, &circle2) < 2000.0 {
-                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.1);
+                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.01);
                     particles.push(Arc::from(RwLock::from(Particle {
                         position: pos,
                         velocity,
@@ -360,8 +364,15 @@ impl World {
             offset: Vec2::new(),
         });
 
-        for p in &self.particles {
-            particle_tree.insert(p.clone(), &p.read().unwrap().position);
+        let mut offset = 0;
+        for (idx, p) in self.particles.clone().iter().enumerate() {
+            let pos = &p.read().unwrap().position;
+            if particle_tree.boundary.contains(pos) {
+                particle_tree.insert(p.clone(), pos);
+            } else {
+                self.particles.remove(idx - offset);
+                offset += 1;
+            }
         }
 
         particle_tree.calculate_gravity();
@@ -369,85 +380,58 @@ impl World {
         self.particle_tree = particle_tree;
     }
 
+    fn sum_gravity(
+        locked_particle: &Arc<RwLock<Particle>>,
+        point: &Vec2,
+        tree: &QuadTree,
+        accel: &mut Vec2,
+    ) {
+        match &tree.tree_type {
+            QuadTreeType::Leaf { points, sum_vec: _ } => {
+                for locked_point in points {
+                    if !std::ptr::eq(locked_particle, locked_point) {
+                        let unlocked_point = locked_point.read().unwrap();
+                        *accel += calculate_gravity(point, &unlocked_point.position, 1.0);
+                    }
+                }
+            }
+            QuadTreeType::Root {
+                total_mass,
+                count: _,
+                ne,
+                se,
+                sw,
+                nw,
+            } => {
+                if dist2(point, &tree.center_of_gravity) > MASS_DISTANCE {
+                    *accel += calculate_gravity(point, &tree.center_of_gravity, *total_mass);
+                } else {
+                    Self::sum_gravity(locked_particle, point, ne, accel);
+                    Self::sum_gravity(locked_particle, point, se, accel);
+                    Self::sum_gravity(locked_particle, point, sw, accel);
+                    Self::sum_gravity(locked_particle, point, nw, accel);
+                }
+            }
+        }
+    }
+
     fn update(&mut self, delta: f64) {
         self.rebuild_tree();
         let acceleration: Vec<Vec2> = self
             .particles
-            .par_iter()
+            .iter()
             .map(|locked_particle| {
                 let particle = locked_particle.read().unwrap();
-                let mut current = &self.particle_tree;
                 let mut accel = Vec2::new();
-                loop {
-                    match &current.tree_type {
-                        QuadTreeType::Leaf { points } => {
-                            for locked_point in points {
-                                if !std::ptr::eq(locked_particle, locked_point) {
-                                    let point = locked_point.read().unwrap();
-                                    accel +=
-                                        calculate_gravity(&particle.position, &point.position, 1.0);
-                                }
-                            }
-                            break;
-                        }
-                        QuadTreeType::Root {
-                            count: _,
-                            ne,
-                            se,
-                            sw,
-                            nw,
-                            total_mass: _,
-                        } => {
-                            let hori_half =
-                                current.boundary.offset.x + (current.boundary.width / 2.0);
-                            let vert_half =
-                                current.boundary.offset.y + (current.boundary.height / 2.0);
+                // TODO: Barnes–Hut algorithm
+                // Calculate distance between current node and
+                Self::sum_gravity(
+                    locked_particle,
+                    &particle.position,
+                    &self.particle_tree,
+                    &mut accel,
+                );
 
-                            let north = particle.position.y <= vert_half;
-                            let west = particle.position.x <= hori_half;
-
-                            match north {
-                                true => match west {
-                                    true => {
-                                        current = nw;
-                                    }
-                                    false => {
-                                        current = ne;
-                                    }
-                                },
-                                false => match west {
-                                    true => {
-                                        current = sw;
-                                    }
-                                    false => {
-                                        current = se;
-                                    }
-                                },
-                            };
-
-                            for tree in [ne, se, sw, nw] {
-                                if !std::ptr::eq(current, tree.as_ref()) {
-                                    let mass = match &tree.tree_type {
-                                        QuadTreeType::Leaf { points } => points.len() as f64,
-                                        QuadTreeType::Root {
-                                            total_mass,
-                                            count: _,
-                                            ne: _,
-                                            se: _,
-                                            sw: _,
-                                            nw: _,
-                                        } => *total_mass,
-                                    };
-                                    accel += calculate_gravity(
-                                        &particle.position,
-                                        &tree.center_of_gravity,
-                                        mass,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
                 accel
             })
             .collect();
@@ -490,7 +474,10 @@ impl World {
             }
         }
         match &node.tree_type {
-            QuadTreeType::Leaf { points: _ } => {
+            QuadTreeType::Leaf {
+                points: _,
+                sum_vec: _,
+            } => {
                 // we done here boys
             }
             QuadTreeType::Root {

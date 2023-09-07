@@ -39,6 +39,7 @@ pub struct QuadTree {
 pub enum QuadTreeType {
     Leaf {
         points: Vec<Arc<RwLock<Particle>>>,
+        sum_vec: Vec2,
     },
     Root {
         total_mass: f64,
@@ -55,14 +56,20 @@ impl QuadTree {
     pub fn new(boundary: Rectangle) -> Self {
         QuadTree {
             boundary,
-            tree_type: QuadTreeType::Leaf { points: Vec::new() },
+            tree_type: QuadTreeType::Leaf {
+                points: Vec::new(),
+                sum_vec: Vec2::new(),
+            },
             center_of_gravity: Vec2::new(),
         }
     }
 
     pub fn count(&self) -> usize {
         match self.tree_type {
-            QuadTreeType::Leaf { ref points } => return points.len(),
+            QuadTreeType::Leaf {
+                ref points,
+                sum_vec: _,
+            } => return points.len(),
             QuadTreeType::Root {
                 ne: _,
                 se: _,
@@ -76,7 +83,7 @@ impl QuadTree {
 
     pub fn get_total_mass(&self) -> f64 {
         match &self.tree_type {
-            QuadTreeType::Leaf { points } => points.len() as f64,
+            QuadTreeType::Leaf { points, sum_vec: _ } => points.len() as f64,
             QuadTreeType::Root {
                 total_mass,
                 count: _,
@@ -90,12 +97,16 @@ impl QuadTree {
 
     pub fn insert(&mut self, point: Arc<RwLock<Particle>>, pos: &Vec2) {
         match self.tree_type {
-            QuadTreeType::Leaf { ref mut points } => {
+            QuadTreeType::Leaf {
+                ref mut points,
+                ref mut sum_vec,
+            } => {
                 if points.len() == QuadTree::MAX_CAPACITY {
                     self.subdivide();
                     self.insert(point, pos);
                 } else {
                     points.push(point.clone());
+                    *sum_vec = sum_vec.add(pos);
                 }
             }
             QuadTreeType::Root {
@@ -129,7 +140,10 @@ impl QuadTree {
 
     fn subdivide(&mut self) {
         match self.tree_type {
-            QuadTreeType::Leaf { ref mut points } => {
+            QuadTreeType::Leaf {
+                ref mut points,
+                sum_vec: _,
+            } => {
                 let new_width = self.boundary.width / 2.0;
                 let new_height = self.boundary.height / 2.0;
 
@@ -172,15 +186,14 @@ impl QuadTree {
 
     pub fn calculate_gravity(&mut self) {
         match self.tree_type {
-            QuadTreeType::Leaf { ref points } => {
-                let sum_vec: Vec2 = points
-                    .iter()
-                    .map(|particle| {
-                        let part = particle.read().unwrap();
-                        part.position.clone()
-                    })
-                    .sum();
-                self.center_of_gravity = sum_vec.div(points.len() as f64);
+            QuadTreeType::Leaf {
+                ref points,
+                ref sum_vec,
+            } => {
+                let len = points.len();
+                if len > 0 {
+                    self.center_of_gravity = sum_vec.div(len as f64);
+                }
             }
             QuadTreeType::Root {
                 count: _,
