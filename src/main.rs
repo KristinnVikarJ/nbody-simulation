@@ -403,7 +403,14 @@ impl World {
                 sw,
                 nw,
             } => {
-                if dist2(point, &tree.center_of_gravity) > MASS_DISTANCE {
+                if !tree.boundary.contains(point)
+                    && dist2(point, &tree.center_of_gravity) > MASS_DISTANCE
+                {
+                    let grav = calculate_gravity(point, &tree.center_of_gravity, *total_mass);
+                    println!(
+                        "{}, {} - {}, {} - {}",
+                        grav.x, grav.y, point.x, point.y, total_mass
+                    );
                     *accel += calculate_gravity(point, &tree.center_of_gravity, *total_mass);
                 } else {
                     Self::sum_gravity(locked_particle, point, ne, accel);
