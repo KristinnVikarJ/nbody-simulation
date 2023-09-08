@@ -406,11 +406,6 @@ impl World {
                 if !tree.boundary.contains(point)
                     && dist2(point, &tree.center_of_gravity) > MASS_DISTANCE
                 {
-                    let grav = calculate_gravity(point, &tree.center_of_gravity, *total_mass);
-                    println!(
-                        "{}, {} - {}, {} - {}",
-                        grav.x, grav.y, point.x, point.y, total_mass
-                    );
                     *accel += calculate_gravity(point, &tree.center_of_gravity, *total_mass);
                 } else {
                     Self::sum_gravity(locked_particle, point, ne, accel);
@@ -452,53 +447,91 @@ impl World {
     }
 
     fn draw_tree(&self, node: &QuadTree, frame: &mut [u8]) {
-        for x in [
-            (node.boundary.offset.x as usize),
-            ((node.boundary.offset.x + node.boundary.width - 1.0) as usize),
-        ] {
-            for y in (node.boundary.offset.y as usize)
-                ..((node.boundary.offset.y + node.boundary.height) as usize)
-            {
-                let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
-                frame[offset] = 0xff; // R
-                frame[offset + 1] = 0xff; // G
-                frame[offset + 2] = 0xff; // B
-                frame[offset + 3] = 0xff; // A
-            }
-        }
-        for x in (node.boundary.offset.x as usize)
-            ..((node.boundary.offset.x + node.boundary.width) as usize)
-        {
-            for y in [
-                (node.boundary.offset.y as usize),
-                ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
+        if node.get_total_mass() > 3000.0 {
+            for x in [
+                (node.boundary.offset.x as usize),
+                ((node.boundary.offset.x + node.boundary.width - 1.0) as usize),
             ] {
-                let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
-                frame[offset] = 0xff; // R
-                frame[offset + 1] = 0xff; // G
-                frame[offset + 2] = 0xff; // B
-                frame[offset + 3] = 0xff; // A
+                for y in (node.boundary.offset.y as usize)
+                    ..((node.boundary.offset.y + node.boundary.height) as usize)
+                {
+                    let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                    frame[offset] = 0xff; // R
+                    frame[offset + 1] = 0xff; // G
+                    frame[offset + 2] = 0xff; // B
+                    frame[offset + 3] = 0xff; // A
+                }
+            }
+            for x in (node.boundary.offset.x as usize)
+                ..((node.boundary.offset.x + node.boundary.width) as usize)
+            {
+                for y in [
+                    (node.boundary.offset.y as usize),
+                    ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
+                ] {
+                    let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                    frame[offset] = 0xff; // R
+                    frame[offset + 1] = 0xff; // G
+                    frame[offset + 2] = 0xff; // B
+                    frame[offset + 3] = 0xff; // A
+                }
+            }
+            match &node.tree_type {
+                QuadTreeType::Leaf {
+                    points: _,
+                    sum_vec: _,
+                } => {
+                    // we done here boys
+                }
+                QuadTreeType::Root {
+                    count: _,
+                    total_mass: _,
+                    ne,
+                    se,
+                    sw,
+                    nw,
+                } => {
+                    self.draw_tree(ne, frame);
+                    self.draw_tree(se, frame);
+                    self.draw_tree(sw, frame);
+                    self.draw_tree(nw, frame);
+                }
             }
         }
-        match &node.tree_type {
-            QuadTreeType::Leaf {
-                points: _,
-                sum_vec: _,
-            } => {
-                // we done here boys
+    }
+
+    fn draw_weights(&self, node: &QuadTree, frame: &mut [u8]) {
+        if node.get_total_mass() > 3000.0 {
+            let x = node.center_of_gravity.x;
+            let y = node.center_of_gravity.y;
+            let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+            if offset >= 8294400 {
+                return;
             }
-            QuadTreeType::Root {
-                count: _,
-                total_mass: _,
-                ne,
-                se,
-                sw,
-                nw,
-            } => {
-                self.draw_tree(ne, frame);
-                self.draw_tree(se, frame);
-                self.draw_tree(sw, frame);
-                self.draw_tree(nw, frame);
+            frame[offset] = 0; // R
+            frame[offset + 1] = 0xff; // G
+            frame[offset + 2] = 0; // B
+            frame[offset + 3] = 0xff; // A
+            match &node.tree_type {
+                QuadTreeType::Leaf {
+                    points: _,
+                    sum_vec: _,
+                } => {
+                    // we done here boys
+                }
+                QuadTreeType::Root {
+                    count: _,
+                    total_mass: _,
+                    ne,
+                    se,
+                    sw,
+                    nw,
+                } => {
+                    self.draw_weights(ne, frame);
+                    self.draw_weights(se, frame);
+                    self.draw_weights(sw, frame);
+                    self.draw_weights(nw, frame);
+                }
             }
         }
     }
@@ -510,6 +543,7 @@ impl World {
         // Zero out the pixel buffer
         frame.iter_mut().for_each(|m| *m = 0);
         //self.draw_tree(&self.particle_tree, frame);
+        //self.draw_weights(&self.particle_tree, frame);
         for locked_particle in self.particles.iter() {
             let particle = locked_particle.read().unwrap();
             if !within_bounds(&particle.position) {

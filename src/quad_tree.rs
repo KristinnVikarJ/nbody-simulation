@@ -119,8 +119,8 @@ impl QuadTree {
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
                 let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
-                let north = pos.y <= vert_half;
-                let west = pos.x <= hori_half;
+                let north = pos.y < vert_half;
+                let west = pos.x < hori_half;
 
                 match north {
                     true => match west {
@@ -215,7 +215,7 @@ impl QuadTree {
 
                 let big_thing = ne.center_of_gravity.mul(ne.get_total_mass())
                     + se.center_of_gravity.mul(se.get_total_mass())
-                    + sw.center_of_gravity.mul(se.get_total_mass())
+                    + sw.center_of_gravity.mul(sw.get_total_mass())
                     + nw.center_of_gravity.mul(nw.get_total_mass());
 
                 self.center_of_gravity = big_thing.div(mass);
