@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLock};
-
 use crate::{Particle, Vec2};
 
 #[derive(Clone)]
@@ -38,7 +36,7 @@ pub struct QuadTree {
 
 pub enum QuadTreeType {
     Leaf {
-        points: Vec<Arc<RwLock<Particle>>>,
+        points: Vec<Particle>,
         sum_vec: Vec2,
     },
     Root {
@@ -95,7 +93,7 @@ impl QuadTree {
         }
     }
 
-    pub fn insert(&mut self, point: Arc<RwLock<Particle>>, pos: &Vec2) {
+    pub fn insert(&mut self, point: Particle) {
         match self.tree_type {
             QuadTreeType::Leaf {
                 ref mut points,
@@ -103,10 +101,10 @@ impl QuadTree {
             } => {
                 if points.len() == QuadTree::MAX_CAPACITY {
                     self.subdivide();
-                    self.insert(point, pos);
+                    self.insert(point);
                 } else {
-                    points.push(point.clone());
-                    *sum_vec = sum_vec.add(pos);
+                    *sum_vec = sum_vec.add(&point.position);
+                    points.push(point);
                 }
             }
             QuadTreeType::Root {
@@ -119,17 +117,17 @@ impl QuadTree {
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
                 let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
-                let north = pos.y < vert_half;
-                let west = pos.x < hori_half;
+                let north = point.position.y < vert_half;
+                let west = point.position.x < hori_half;
 
                 match north {
                     true => match west {
-                        true => nw.insert(point, pos),
-                        false => ne.insert(point, pos),
+                        true => nw.insert(point),
+                        false => ne.insert(point),
                     },
                     false => match west {
-                        true => sw.insert(point, pos),
-                        false => se.insert(point, pos),
+                        true => sw.insert(point),
+                        false => se.insert(point),
                     },
                 };
 
@@ -139,11 +137,8 @@ impl QuadTree {
     }
 
     fn subdivide(&mut self) {
-        match self.tree_type {
-            QuadTreeType::Leaf {
-                ref mut points,
-                sum_vec: _,
-            } => {
+        match &self.tree_type {
+            QuadTreeType::Leaf { points, sum_vec: _ } => {
                 let new_width = self.boundary.width / 2.0;
                 let new_height = self.boundary.height / 2.0;
 
@@ -176,7 +171,7 @@ impl QuadTree {
                     center_of_gravity: self.center_of_gravity.clone(),
                 };
                 for p in points {
-                    new.insert(p.clone(), &p.read().unwrap().position);
+                    new.insert(p.clone());
                 }
                 *self = new;
             }
