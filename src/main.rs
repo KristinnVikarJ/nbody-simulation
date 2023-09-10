@@ -290,8 +290,8 @@ fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, force: f64) -> Vec2 {
 
     let mut distance = (xdiff * xdiff) + (ydiff * ydiff);
     // Clamp value
-    if distance < 0.0001f64 {
-        distance = 0.0001f64;
+    if distance < 0.001f64 {
+        distance = 0.001f64;
     }
 
     // According to wolfram
@@ -317,7 +317,7 @@ impl World {
             y: 540.0,
         }; // Teeny-tiny bit off-center, so we dont have particles inside each other
 
-        let c1lenr2 = 5000.0;
+        let c1lenr2 = 6000.0;
 
         for x in 0..WIDTH - 1 {
             for y in 0..HEIGHT - 1 {
@@ -328,24 +328,7 @@ impl World {
                 if dist2(&pos, &circle1) < c1lenr2
                     && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1000.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.01);
-                    particles.push(Particle {
-                        position: pos,
-                        velocity,
-                    });
-                }
-            }
-        }
-
-        // Inner circle
-        for x in 0..WIDTH - 1 {
-            for y in 0..HEIGHT - 1 {
-                let pos = Vec2 {
-                    x: x as f64,
-                    y: y as f64,
-                };
-                if dist2(&pos, &circle2) < 2000.0 {
-                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.01);
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.15);
                     particles.push(Particle {
                         position: pos,
                         velocity,
