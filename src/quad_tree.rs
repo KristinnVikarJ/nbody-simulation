@@ -41,7 +41,6 @@ pub enum QuadTreeType {
     },
     Root {
         total_mass: f64,
-        count: usize,
         ne: Box<QuadTree>,
         se: Box<QuadTree>,
         sw: Box<QuadTree>,
@@ -62,29 +61,11 @@ impl QuadTree {
         }
     }
 
-    pub fn count(&self) -> usize {
-        match self.tree_type {
-            QuadTreeType::Leaf {
-                ref points,
-                sum_vec: _,
-            } => return points.len(),
-            QuadTreeType::Root {
-                ne: _,
-                se: _,
-                sw: _,
-                nw: _,
-                total_mass: _,
-                count,
-            } => return count,
-        }
-    }
-
     pub fn get_total_mass(&self) -> f64 {
         match &self.tree_type {
             QuadTreeType::Leaf { points, sum_vec: _ } => points.len() as f64,
             QuadTreeType::Root {
                 total_mass,
-                count: _,
                 ne: _,
                 se: _,
                 sw: _,
@@ -112,7 +93,6 @@ impl QuadTree {
                 ref mut se,
                 ref mut sw,
                 ref mut nw,
-                ref mut count,
                 total_mass: _,
             } => {
                 let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
@@ -130,8 +110,6 @@ impl QuadTree {
                         false => se.insert(point),
                     },
                 };
-
-                *count += 1;
             }
         }
     }
@@ -165,7 +143,6 @@ impl QuadTree {
                             new_width,
                             new_height,
                         ))),
-                        count: points.len(),
                         total_mass: points.len() as f64,
                     },
                     center_of_gravity: self.center_of_gravity.clone(),
@@ -191,7 +168,6 @@ impl QuadTree {
                 }
             }
             QuadTreeType::Root {
-                count: _,
                 ref mut ne,
                 ref mut se,
                 ref mut sw,

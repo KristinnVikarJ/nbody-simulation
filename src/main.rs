@@ -1,10 +1,10 @@
 mod quad_tree;
 
+use flume::{Receiver, Sender};
 use quad_tree::{QuadTree, QuadTreeType};
 use std::borrow::Borrow;
 use std::iter::Sum;
 use std::ops;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
@@ -25,8 +25,8 @@ use crate::quad_tree::Rectangle;
 const WIDTH: u32 = 1000;
 const HEIGHT: u32 = 1000;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.005; //0.00065;
-const THETA: f64 = 0.4; // Represents ratio of width/distance lower = better
+const STEP_SIZE: f64 = 0.001;
+const THETA: f64 = 0.9; // Represents ratio of width/distance lower = better
 
 struct World {
     particle_tree: QuadTree,
@@ -76,7 +76,7 @@ fn main() -> Result<(), Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let (tx, rx): (Sender<Vec<Particle>>, Receiver<Vec<Particle>>) = mpsc::channel();
+    let (tx, rx): (Sender<Vec<Particle>>, Receiver<Vec<Particle>>) = flume::bounded(2);
 
     let mut frames = 0;
     let updates = Arc::new(Mutex::from(0));
@@ -92,7 +92,7 @@ fn main() -> Result<(), Error> {
             *updates_data += 1;
 
             // Send particles over thread
-            tx.send(particles).unwrap();
+            let _ = tx.try_send(particles);
             sleep(Duration::from_nanos(500)); // Max 2000 updates/s edit: 200k?
         }
     });
@@ -312,12 +312,7 @@ impl World {
 
         let circle1 = Vec2 { x: 500.0, y: 500.0 };
 
-        let circle2 = Vec2 {
-            x: 1200.0,
-            y: 540.0,
-        }; // Teeny-tiny bit off-center, so we dont have particles inside each other
-
-        let c1lenr2 = 6000.0;
+        let c1lenr2 = 10000.0;
 
         for x in 0..WIDTH - 1 {
             for y in 0..HEIGHT - 1 {
@@ -326,9 +321,9 @@ impl World {
                     y: y as f64,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1000.0
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.15);
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.175);
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -392,14 +387,14 @@ impl World {
             }
             QuadTreeType::Root {
                 total_mass,
-                count: _,
                 ne,
                 se,
                 sw,
                 nw,
             } => {
                 if !tree.boundary.contains(&particle.position)
-                    && tree.boundary.width / dist(&particle.position, &tree.center_of_gravity)
+                    && tree.boundary.width * tree.boundary.width
+                        / dist2(&particle.position, &tree.center_of_gravity)
                         < THETA
                 {
                     *accel +=
@@ -474,7 +469,6 @@ impl World {
                     // we done here boys
                 }
                 QuadTreeType::Root {
-                    count: _,
                     total_mass: _,
                     ne,
                     se,
@@ -510,7 +504,6 @@ impl World {
                     // we done here boys
                 }
                 QuadTreeType::Root {
-                    count: _,
                     total_mass: _,
                     ne,
                     se,
