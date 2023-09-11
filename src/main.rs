@@ -24,8 +24,8 @@ use crate::quad_tree::Rectangle;
 
 const HEIGHT: u32 = 1000;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.001;
-const THETA: f64 = 0.9; // Represents ratio of width/distance lower = better
+const STEP_SIZE: f64 = 0.001; // Multiplier of current step size, Lower = higher quality
+const THETA: f64 = 0.9; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
     particle_tree: QuadTree,
