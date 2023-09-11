@@ -22,7 +22,6 @@ use winit_input_helper::WinitInputHelper;
 
 use crate::quad_tree::Rectangle;
 
-const WIDTH: u32 = 1000;
 const HEIGHT: u32 = 1000;
 const PARTICLE_COUNT: usize = 10_000;
 const STEP_SIZE: f64 = 0.001;
@@ -44,7 +43,7 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
         }
 
         let offset =
-            ((particle.position.y as u32 * WIDTH) + particle.position.x as u32) as usize * 4;
+            ((particle.position.y as u32 * HEIGHT) + particle.position.x as u32) as usize * 4;
         let velocity = 0x10
             + (((particle.velocity.x.abs() + particle.velocity.y.abs()) * 10.0) as u8).min(0xef);
         frame[offset] = 0xff; // R
@@ -61,7 +60,7 @@ fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
     let mut input = WinitInputHelper::new();
     let window = {
-        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        let size = LogicalSize::new(HEIGHT as f64, HEIGHT as f64);
         WindowBuilder::new()
             .with_title("Hello Pixels")
             .with_inner_size(size)
@@ -73,7 +72,7 @@ fn main() -> Result<(), Error> {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+        Pixels::new(HEIGHT, HEIGHT, surface_texture)?
     };
 
     let (tx, rx): (Sender<Vec<Particle>>, Receiver<Vec<Particle>>) = flume::bounded(2);
@@ -262,7 +261,7 @@ pub struct Particle {
 
 #[inline(always)]
 fn within_bounds(pos: &Vec2) -> bool {
-    pos.y < HEIGHT as f64 && pos.x < WIDTH as f64 && pos.y >= 0f64 && pos.x >= 0f64
+    pos.y < HEIGHT as f64 && pos.x < HEIGHT as f64 && pos.y >= 0f64 && pos.x >= 0f64
 }
 
 #[inline(always)]
@@ -314,7 +313,7 @@ impl World {
 
         let c1lenr2 = 10000.0;
 
-        for x in 0..WIDTH - 1 {
+        for x in 0..HEIGHT - 1 {
             for y in 0..HEIGHT - 1 {
                 let pos = Vec2 {
                     x: x as f64,
@@ -334,7 +333,7 @@ impl World {
         for _ in 0..1_000 {
             particles.push(Particle {
                 position: Vec2 {
-                    x: rng.gen_range(0f64..WIDTH as f64),
+                    x: rng.gen_range(0f64..HEIGHT as f64),
                     y: rng.gen_range(0f64..HEIGHT as f64),
                 },
                 velocity: Vec2::new(),
@@ -342,11 +341,10 @@ impl World {
         }
         println!("len: {}", particles.len());
 
-        let particle_tree = QuadTree::new(Rectangle {
-            height: HEIGHT as f64,
-            width: WIDTH as f64,
-            offset: Vec2::new(),
-        });
+        let particle_tree = QuadTree::new(Rectangle::new(
+            Vec2::new(),
+            HEIGHT as f64,
+        ));
 
         Self {
             particle_tree,
@@ -355,11 +353,10 @@ impl World {
     }
 
     fn rebuild_tree(&mut self) {
-        let mut particle_tree = QuadTree::new(Rectangle {
-            height: HEIGHT as f64,
-            width: WIDTH as f64,
-            offset: Vec2::new(),
-        });
+        let mut particle_tree = QuadTree::new(Rectangle::new(
+            Vec2::new(),
+            HEIGHT as f64,
+        ));
 
         let mut offset = 0;
         for (idx, particle) in self.particles.clone().iter().enumerate() {
@@ -393,7 +390,7 @@ impl World {
                 nw,
             } => {
                 if !tree.boundary.contains(&particle.position)
-                    && tree.boundary.width * tree.boundary.width
+                    && tree.boundary.height2
                         / dist2(&particle.position, &tree.center_of_gravity)
                         < THETA
                 {
@@ -435,12 +432,12 @@ impl World {
         if node.get_total_mass() > 3000.0 {
             for x in [
                 (node.boundary.offset.x as usize),
-                ((node.boundary.offset.x + node.boundary.width - 1.0) as usize),
+                ((node.boundary.offset.x + node.boundary.height - 1.0) as usize),
             ] {
                 for y in (node.boundary.offset.y as usize)
                     ..((node.boundary.offset.y + node.boundary.height) as usize)
                 {
-                    let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                    let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
                     frame[offset] = 0xff; // R
                     frame[offset + 1] = 0xff; // G
                     frame[offset + 2] = 0xff; // B
@@ -448,13 +445,13 @@ impl World {
                 }
             }
             for x in (node.boundary.offset.x as usize)
-                ..((node.boundary.offset.x + node.boundary.width) as usize)
+                ..((node.boundary.offset.x + node.boundary.height) as usize)
             {
                 for y in [
                     (node.boundary.offset.y as usize),
                     ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
                 ] {
-                    let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+                    let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
                     frame[offset] = 0xff; // R
                     frame[offset + 1] = 0xff; // G
                     frame[offset + 2] = 0xff; // B
@@ -488,7 +485,7 @@ impl World {
         if node.get_total_mass() > 3000.0 {
             let x = node.center_of_gravity.x;
             let y = node.center_of_gravity.y;
-            let offset = ((y as u32 * WIDTH) + x as u32) as usize * 4;
+            let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
             if offset >= 8294400 {
                 return;
             }

@@ -4,22 +4,22 @@ use crate::{Particle, Vec2};
 pub struct Rectangle {
     pub offset: Vec2,
     pub height: f64,
-    pub width: f64,
+    pub height2: f64,
 }
 
 impl Rectangle {
-    pub fn new(offset: Vec2, width: f64, height: f64) -> Self {
+    pub fn new(offset: Vec2, height: f64) -> Self {
         Self {
             offset,
             height,
-            width,
+            height2: height*height,
         }
     }
 
     pub fn contains(self: &Rectangle, other: &Vec2) -> bool {
         other.y > self.offset.y
             && other.x > self.offset.x
-            && other.x < (self.offset.x + self.width)
+            && other.x < (self.offset.x + self.height)
             && other.y < (self.offset.y + self.height)
     }
 
@@ -95,8 +95,10 @@ impl QuadTree {
                 ref mut nw,
                 total_mass: _,
             } => {
-                let hori_half = self.boundary.offset.x + (self.boundary.width / 2.0);
-                let vert_half = self.boundary.offset.y + (self.boundary.height / 2.0);
+                let half_height = self.boundary.height / 2.0;
+
+                let hori_half = self.boundary.offset.x + half_height;
+                let vert_half = self.boundary.offset.y + half_height;
                 let north = point.position.y < vert_half;
                 let west = point.position.x < hori_half;
 
@@ -117,30 +119,25 @@ impl QuadTree {
     fn subdivide(&mut self) {
         match &self.tree_type {
             QuadTreeType::Leaf { points, sum_vec: _ } => {
-                let new_width = self.boundary.width / 2.0;
                 let new_height = self.boundary.height / 2.0;
 
                 let mut new = QuadTree {
                     boundary: self.boundary.clone(),
                     tree_type: QuadTreeType::Root {
                         ne: Box::new(QuadTree::new(Rectangle::new(
-                            self.boundary.offset(new_width, 0.0),
-                            new_width,
+                            self.boundary.offset(new_height, 0.0),
                             new_height,
                         ))),
                         se: Box::new(QuadTree::new(Rectangle::new(
-                            self.boundary.offset(new_width, new_height),
-                            new_width,
+                            self.boundary.offset(new_height, new_height),
                             new_height,
                         ))),
                         sw: Box::new(QuadTree::new(Rectangle::new(
                             self.boundary.offset(0.0, new_height),
-                            new_width,
                             new_height,
                         ))),
                         nw: Box::new(QuadTree::new(Rectangle::new(
                             self.boundary.offset.clone(),
-                            new_width,
                             new_height,
                         ))),
                         total_mass: points.len() as f64,
