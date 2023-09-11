@@ -54,7 +54,7 @@ impl QuadTree {
         QuadTree {
             boundary,
             tree_type: QuadTreeType::Leaf {
-                points: Vec::new(),
+                points: Vec::with_capacity(Self::MAX_CAPACITY),
                 sum_vec: Vec2::new(),
             },
             center_of_gravity: Vec2::new(),

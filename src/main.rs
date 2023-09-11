@@ -5,6 +5,7 @@ use quad_tree::{QuadTree, QuadTreeType};
 use std::borrow::Borrow;
 use std::iter::Sum;
 use std::ops;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
@@ -75,39 +76,34 @@ fn main() -> Result<(), Error> {
         Pixels::new(HEIGHT, HEIGHT, surface_texture)?
     };
 
-    let (tx, rx): (Sender<Vec<Particle>>, Receiver<Vec<Particle>>) = flume::bounded(2);
+    let (tx, rx): (Sender<(Vec<Particle>, u64)>, Receiver<(Vec<Particle>, u64)>) = flume::bounded(2);
 
     let mut frames = 0;
-    let updates = Arc::new(Mutex::from(0));
+    let mut last_updates = 0;
     let mut frame_timer = Instant::now();
 
-    // Clone the arc
-    let updates2 = updates.clone();
     spawn(move || {
         let mut world = World::new();
+        let mut updates: u64 = 0;
         loop {
             let particles = world.update(STEP_SIZE);
-            let mut updates_data = updates2.lock().unwrap();
-            *updates_data += 1;
+            updates += 1;
 
             // Send particles over thread
-            let _ = tx.try_send(particles);
-            sleep(Duration::from_nanos(500)); // Max 2000 updates/s edit: 200k?
+            let _ = tx.try_send((particles, updates));
         }
     });
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::RedrawRequested(_) => {
-                let particles = rx.recv().unwrap();
+                let (particles, updates) = rx.recv().unwrap();
                 draw(&particles, pixels.frame_mut());
                 frames += 1;
                 if frame_timer.elapsed().as_secs() >= 1 {
-                    println!("fps: {}", frames);
-                    let mut updates_data = updates.lock().unwrap();
-                    println!("ups: {}", updates_data);
+                    println!("fps: {}\nups: {}", frames, updates - last_updates);
                     frames = 0;
-                    *updates_data = 0;
+                    last_updates = updates;
                     frame_timer = Instant::now();
                 }
                 if let Err(err) = pixels.render() {
