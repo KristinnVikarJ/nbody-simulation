@@ -5,10 +5,8 @@ use quad_tree::{QuadTree, QuadTreeType};
 use std::borrow::Borrow;
 use std::iter::Sum;
 use std::ops;
-use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, Mutex};
-use std::thread::{sleep, spawn};
-use std::time::{Duration, Instant};
+use std::thread::spawn;
+use std::time::Instant;
 
 use error_iter::ErrorIter as _;
 use log::error;
@@ -56,6 +54,14 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Counting {
+    build_tree: f64,
+    calculate_gravity: f64, // part of build_tree
+    sum_gravity: f64,
+    post_calculations: f64,
+}
+
 fn main() -> Result<(), Error> {
     env_logger::init();
     let event_loop = EventLoop::new();
@@ -63,7 +69,7 @@ fn main() -> Result<(), Error> {
     let window = {
         let size = LogicalSize::new(HEIGHT as f64, HEIGHT as f64);
         WindowBuilder::new()
-            .with_title("Hello Pixels")
+            .with_title("Barnes-Hut Simulation")
             .with_inner_size(size)
             .with_min_inner_size(size)
             .build(&event_loop)
@@ -76,7 +82,10 @@ fn main() -> Result<(), Error> {
         Pixels::new(HEIGHT, HEIGHT, surface_texture)?
     };
 
-    let (tx, rx): (Sender<(Vec<Particle>, u64)>, Receiver<(Vec<Particle>, u64)>) = flume::bounded(2);
+    let (tx, rx): (
+        Sender<(Vec<Particle>, u64, Counting)>,
+        Receiver<(Vec<Particle>, u64, Counting)>,
+    ) = flume::bounded(2);
 
     let mut frames = 0;
     let mut last_updates = 0;
@@ -85,23 +94,30 @@ fn main() -> Result<(), Error> {
     spawn(move || {
         let mut world = World::new();
         let mut updates: u64 = 0;
+        let mut counter = Counting {
+            build_tree: 0.0,
+            calculate_gravity: 0.0,
+            post_calculations: 0.0,
+            sum_gravity: 0.0,
+        };
         loop {
-            let particles = world.update(STEP_SIZE);
+            let particles = world.update(STEP_SIZE, &mut counter);
             updates += 1;
 
             // Send particles over thread
-            let _ = tx.try_send((particles, updates));
+            let _ = tx.try_send((particles, updates, counter.clone()));
         }
     });
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::RedrawRequested(_) => {
-                let (particles, updates) = rx.recv().unwrap();
+                let (particles, updates, counter) = rx.recv().unwrap();
                 draw(&particles, pixels.frame_mut());
                 frames += 1;
                 if frame_timer.elapsed().as_secs() >= 1 {
                     println!("fps: {}\nups: {}", frames, updates - last_updates);
+                    println!("{:?}", counter);
                     frames = 0;
                     last_updates = updates;
                     frame_timer = Instant::now();
@@ -234,7 +250,6 @@ impl ops::Mul<f64> for &Vec2 {
         }
     }
 }
-
 impl<'a> Sum<Self> for Vec2 {
     fn sum<I>(iter: I) -> Self
     where
@@ -304,7 +319,7 @@ impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
-
+        /*
         let circle1 = Vec2 { x: 500.0, y: 500.0 };
 
         let c1lenr2 = 10000.0;
@@ -326,7 +341,8 @@ impl World {
                 }
             }
         }
-        for _ in 0..1_000 {
+        */
+        for _ in 0..25_000 {
             particles.push(Particle {
                 position: Vec2 {
                     x: rng.gen_range(0f64..HEIGHT as f64),
@@ -337,10 +353,7 @@ impl World {
         }
         println!("len: {}", particles.len());
 
-        let particle_tree = QuadTree::new(Rectangle::new(
-            Vec2::new(),
-            HEIGHT as f64,
-        ));
+        let particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
 
         Self {
             particle_tree,
@@ -348,11 +361,8 @@ impl World {
         }
     }
 
-    fn rebuild_tree(&mut self) {
-        let mut particle_tree = QuadTree::new(Rectangle::new(
-            Vec2::new(),
-            HEIGHT as f64,
-        ));
+    fn rebuild_tree(&mut self, counter: &mut Counting) {
+        let mut particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
 
         let mut offset = 0;
         for (idx, particle) in self.particles.clone().iter().enumerate() {
@@ -364,14 +374,18 @@ impl World {
             }
         }
 
+        let timer = Instant::now();
+
         particle_tree.calculate_gravity();
+
+        counter.calculate_gravity += timer.elapsed().as_secs_f64();
 
         self.particle_tree = particle_tree;
     }
 
     fn sum_gravity(particle: &Particle, tree: &QuadTree, accel: &mut Vec2) {
         match &tree.tree_type {
-            QuadTreeType::Leaf { points, sum_vec: _ } => {
+            QuadTreeType::Leaf { points } => {
                 for point in points {
                     if !std::ptr::eq(particle, point) {
                         *accel += calculate_gravity(&particle.position, &point.position, 1.0);
@@ -380,30 +394,28 @@ impl World {
             }
             QuadTreeType::Root {
                 total_mass,
-                ne,
-                se,
-                sw,
-                nw,
+                children
             } => {
                 if !tree.boundary.contains(&particle.position)
-                    && tree.boundary.height2
-                        / dist2(&particle.position, &tree.center_of_gravity)
+                    && tree.boundary.height2 / dist2(&particle.position, &tree.center_of_gravity)
                         < THETA
                 {
                     *accel +=
                         calculate_gravity(&particle.position, &tree.center_of_gravity, *total_mass);
                 } else {
-                    Self::sum_gravity(particle, ne, accel);
-                    Self::sum_gravity(particle, se, accel);
-                    Self::sum_gravity(particle, sw, accel);
-                    Self::sum_gravity(particle, nw, accel);
+                    for child in children {
+                        Self::sum_gravity(particle, child, accel);
+                    }
                 }
             }
         }
     }
 
-    fn update(&mut self, delta: f64) -> Vec<Particle> {
-        self.rebuild_tree();
+    fn update(&mut self, delta: f64, counter: &mut Counting) -> Vec<Particle> {
+        let mut timer = Instant::now();
+        self.rebuild_tree(counter);
+        counter.build_tree += timer.elapsed().as_secs_f64();
+        timer = Instant::now();
         let acceleration: Vec<Vec2> = self
             .particles
             .par_iter()
@@ -414,12 +426,14 @@ impl World {
                 accel
             })
             .collect();
-
+        counter.sum_gravity += timer.elapsed().as_secs_f64();
+        timer = Instant::now();
         for (idx, particle) in self.particles.iter_mut().enumerate() {
             particle.velocity += &acceleration[idx] * delta;
             let velo = particle.velocity.mul(delta);
             particle.position += velo;
         }
+        counter.post_calculations += timer.elapsed().as_secs_f64();
 
         self.particles.clone()
     }
@@ -455,23 +469,16 @@ impl World {
                 }
             }
             match &node.tree_type {
-                QuadTreeType::Leaf {
-                    points: _,
-                    sum_vec: _,
-                } => {
+                QuadTreeType::Leaf { points: _ } => {
                     // we done here boys
                 }
                 QuadTreeType::Root {
                     total_mass: _,
-                    ne,
-                    se,
-                    sw,
-                    nw,
+                    children
                 } => {
-                    self.draw_tree(ne, frame);
-                    self.draw_tree(se, frame);
-                    self.draw_tree(sw, frame);
-                    self.draw_tree(nw, frame);
+                    for child in children {
+                        self.draw_tree(child, frame);
+                    }
                 }
             }
         }
@@ -490,23 +497,16 @@ impl World {
             frame[offset + 2] = 0; // B
             frame[offset + 3] = 0xff; // A
             match &node.tree_type {
-                QuadTreeType::Leaf {
-                    points: _,
-                    sum_vec: _,
-                } => {
+                QuadTreeType::Leaf { points: _ } => {
                     // we done here boys
                 }
                 QuadTreeType::Root {
                     total_mass: _,
-                    ne,
-                    se,
-                    sw,
-                    nw,
+                    children
                 } => {
-                    self.draw_weights(ne, frame);
-                    self.draw_weights(se, frame);
-                    self.draw_weights(sw, frame);
-                    self.draw_weights(nw, frame);
+                    for child in children {
+                        self.draw_weights(child, frame);
+                    }
                 }
             }
         }
