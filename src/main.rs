@@ -319,11 +319,10 @@ impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
-        /*
         let circle1 = Vec2 { x: 500.0, y: 500.0 };
-
+        
         let c1lenr2 = 10000.0;
-
+        
         for x in 0..HEIGHT - 1 {
             for y in 0..HEIGHT - 1 {
                 let pos = Vec2 {
@@ -331,7 +330,7 @@ impl World {
                     y: y as f64,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
+                && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
                 {
                     let velocity = rotate_right(&pos.sub(&circle1)).mul(0.175);
                     particles.push(Particle {
@@ -341,8 +340,9 @@ impl World {
                 }
             }
         }
+        /*
         */
-        for _ in 0..25_000 {
+        for _ in 0..1_000 {
             particles.push(Particle {
                 position: Vec2 {
                     x: rng.gen_range(0f64..HEIGHT as f64),
