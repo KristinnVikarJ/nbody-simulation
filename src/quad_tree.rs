@@ -35,12 +35,10 @@ pub struct QuadTree {
 }
 
 pub enum QuadTreeType {
-    Leaf {
-        points: Vec<Particle>,
-    },
+    Leaf(Box<[Option<Particle>; 4]>),
     Root {
         total_mass: f64,
-        children: Vec<QuadTree>,
+        children: Box<[QuadTree; 4]>,
     },
 }
 
@@ -49,16 +47,14 @@ impl QuadTree {
     pub fn new(boundary: Rectangle) -> Self {
         QuadTree {
             boundary,
-            tree_type: QuadTreeType::Leaf {
-                points: Vec::with_capacity(Self::MAX_CAPACITY),
-            },
+            tree_type: QuadTreeType::Leaf(Box::from([None, None, None, None])),
             center_of_gravity: Vec2::new(),
         }
     }
 
     pub fn get_total_mass(&self) -> f64 {
         match &self.tree_type {
-            QuadTreeType::Leaf { points } => points.len() as f64,
+            QuadTreeType::Leaf(points) => points.iter().flatten().count() as f64,
             QuadTreeType::Root {
                 total_mass,
                 children: _,
@@ -68,12 +64,13 @@ impl QuadTree {
 
     pub fn insert(&mut self, point: Particle) {
         match self.tree_type {
-            QuadTreeType::Leaf { ref mut points } => {
-                if points.len() == QuadTree::MAX_CAPACITY {
+            QuadTreeType::Leaf(ref mut points) => {
+                let len = points.iter().flatten().count();
+                if len == QuadTree::MAX_CAPACITY {
                     self.subdivide();
                     self.insert(point);
                 } else {
-                    points.push(point);
+                    points[len] = Some(point);
                 }
             }
             QuadTreeType::Root {
@@ -103,13 +100,13 @@ impl QuadTree {
 
     fn subdivide(&mut self) {
         match &self.tree_type {
-            QuadTreeType::Leaf { points } => {
+            QuadTreeType::Leaf(points) => {
                 let new_height = self.boundary.height / 2.0;
 
                 let mut new = QuadTree {
                     boundary: self.boundary.clone(),
                     tree_type: QuadTreeType::Root {
-                        children: vec![
+                        children: Box::from([
                             QuadTree::new(Rectangle::new(self.boundary.offset.clone(), new_height)),
                             QuadTree::new(Rectangle::new(
                                 self.boundary.offset(new_height, 0.0),
@@ -123,12 +120,12 @@ impl QuadTree {
                                 self.boundary.offset(new_height, new_height),
                                 new_height,
                             )),
-                        ],
+                        ]),
                         total_mass: points.len() as f64,
                     },
                     center_of_gravity: self.center_of_gravity.clone(),
                 };
-                for p in points {
+                for p in points.iter().flatten() {
                     new.insert(p.clone());
                 }
                 *self = new;
@@ -139,11 +136,12 @@ impl QuadTree {
 
     pub fn calculate_gravity(&mut self) {
         match self.tree_type {
-            QuadTreeType::Leaf { ref points } => {
-                let len = points.len();
+            QuadTreeType::Leaf(ref points) => {
+                let len = points.iter().flatten().count();
                 if len > 0 {
                     self.center_of_gravity = points
                         .iter()
+                        .flatten()
                         .fold(Vec2::new(), |acc, part| acc.add(&part.position))
                         .div(len as f64);
                 }

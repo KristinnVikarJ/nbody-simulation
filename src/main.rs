@@ -287,6 +287,7 @@ fn dist(pos1: &Vec2, pos2: &Vec2) -> f64 {
     dist2(pos1, pos2).sqrt()
 }
 
+#[inline(always)]
 fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, force: f64) -> Vec2 {
     let xdiff = particle2.x - particle1.x;
     let ydiff = particle2.y - particle1.y;
@@ -320,9 +321,9 @@ impl World {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
         let circle1 = Vec2 { x: 500.0, y: 500.0 };
-        
+
         let c1lenr2 = 10000.0;
-        
+
         for x in 0..HEIGHT - 1 {
             for y in 0..HEIGHT - 1 {
                 let pos = Vec2 {
@@ -330,7 +331,7 @@ impl World {
                     y: y as f64,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
-                && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
                 {
                     let velocity = rotate_right(&pos.sub(&circle1)).mul(0.175);
                     particles.push(Particle {
@@ -341,7 +342,7 @@ impl World {
             }
         }
         /*
-        */
+         */
         for _ in 0..1_000 {
             particles.push(Particle {
                 position: Vec2 {
@@ -385,8 +386,8 @@ impl World {
 
     fn sum_gravity(particle: &Particle, tree: &QuadTree, accel: &mut Vec2) {
         match &tree.tree_type {
-            QuadTreeType::Leaf { points } => {
-                for point in points {
+            QuadTreeType::Leaf(points) => {
+                for point in points.iter().flatten() {
                     if !std::ptr::eq(particle, point) {
                         *accel += calculate_gravity(&particle.position, &point.position, 1.0);
                     }
@@ -394,16 +395,16 @@ impl World {
             }
             QuadTreeType::Root {
                 total_mass,
-                children
+                children,
             } => {
                 if !tree.boundary.contains(&particle.position)
-                    && tree.boundary.height2 / dist2(&particle.position, &tree.center_of_gravity)
-                        < THETA
+                    && tree.boundary.height2
+                        < dist2(&particle.position, &tree.center_of_gravity) * THETA * THETA
                 {
                     *accel +=
                         calculate_gravity(&particle.position, &tree.center_of_gravity, *total_mass);
                 } else {
-                    for child in children {
+                    for child in children.iter() {
                         Self::sum_gravity(particle, child, accel);
                     }
                 }
@@ -469,14 +470,14 @@ impl World {
                 }
             }
             match &node.tree_type {
-                QuadTreeType::Leaf { points: _ } => {
+                QuadTreeType::Leaf(_) => {
                     // we done here boys
                 }
                 QuadTreeType::Root {
                     total_mass: _,
-                    children
+                    children,
                 } => {
-                    for child in children {
+                    for child in children.iter() {
                         self.draw_tree(child, frame);
                     }
                 }
@@ -497,14 +498,14 @@ impl World {
             frame[offset + 2] = 0; // B
             frame[offset + 3] = 0xff; // A
             match &node.tree_type {
-                QuadTreeType::Leaf { points: _ } => {
+                QuadTreeType::Leaf(_) => {
                     // we done here boys
                 }
                 QuadTreeType::Root {
                     total_mass: _,
-                    children
+                    children,
                 } => {
-                    for child in children {
+                    for child in children.iter() {
                         self.draw_weights(child, frame);
                     }
                 }
