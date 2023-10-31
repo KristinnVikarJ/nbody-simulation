@@ -54,7 +54,10 @@ impl QuadTree {
 
     pub fn get_total_mass(&self) -> f64 {
         match &self.tree_type {
-            QuadTreeType::Leaf(points) => points.iter().flatten().count() as f64,
+            QuadTreeType::Leaf(points) => points
+                .iter()
+                .flatten()
+                .fold(0.0, |a, particle| a + particle.weight),
             QuadTreeType::Root {
                 total_mass,
                 children: _,

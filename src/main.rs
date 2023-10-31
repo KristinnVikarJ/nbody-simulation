@@ -10,6 +10,7 @@ use std::thread::spawn;
 use std::time::Instant;
 
 use error_iter::ErrorIter as _;
+use jemallocator::Jemalloc;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
 use rand::Rng;
@@ -19,7 +20,6 @@ use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
-use jemallocator::Jemalloc;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -272,6 +272,7 @@ impl<'a> Sum<Self> for Vec2 {
 pub struct Particle {
     position: Vec2,
     velocity: Vec2,
+    weight: f64,
 }
 
 #[inline(always)]
@@ -292,7 +293,7 @@ fn dist(pos1: &Vec2, pos2: &Vec2) -> f64 {
 }
 
 #[inline(always)]
-fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, force: f64) -> Vec2 {
+fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, weight: f64, force: f64) -> Vec2 {
     let xdiff = particle2.x - particle1.x;
     let ydiff = particle2.y - particle1.y;
 
@@ -309,10 +310,7 @@ fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, force: f64) -> Vec2 {
         distance = 0.001f64;
     }
 
-    // According to wolfram
-    //let sd = sum * distance;
-
-    let reduced_force = force / distance;
+    let reduced_force = (force * weight) / distance;
 
     Vec2 {
         x: (xdiff / sum) * reduced_force,
@@ -327,54 +325,45 @@ impl World {
         let sample = Uniform::new(0f64, HEIGHT as f64);
         let circle1 = Vec2 { x: 400.0, y: 400.0 };
         let circle2 = Vec2 { x: 650.0, y: 650.0 };
+        particles.push(Particle {
+            position: circle1.clone(),
+            velocity: Vec2::new(),
+            weight: 20000.0,
+        });
 
         let c1lenr2 = 12000.0;
 
-        
-        for x in 0..(HEIGHT*2) - 2 {
-            for y in 0..(HEIGHT*2) - 2 {
+        for x in 0..(HEIGHT - 1) * 3 {
+            for y in 0..(HEIGHT - 1) * 3 {
                 let pos = Vec2 {
-                    x: (x as f64) / 2.0,
-                    y: (y as f64) / 2.0,
+                    x: x as f64 / 3.0,
+                    y: y as f64 / 3.0,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
+                    && dist2(&pos, &circle1) > 300.0
                     && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.195);
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.8);
                     particles.push(Particle {
                         position: pos,
                         velocity,
-                    });
-                }
-            }
-        }
-        for x in 0..HEIGHT - 1 {
-            for y in 0..HEIGHT - 1 {
-                let pos = Vec2 {
-                    x: x as f64,
-                    y: y as f64,
-                };
-                if dist2(&pos, &circle2) < c1lenr2
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 1500.0
-                {
-                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.195);
-                    particles.push(Particle {
-                        position: pos,
-                        velocity,
+                        weight: 1.0,
                     });
                 }
             }
         }
         /*
-        for _ in 0..100_000 {
+         */
+        for _ in 0..2_000 {
             particles.push(Particle {
                 position: Vec2 {
                     x: rng.sample(sample),
                     y: rng.sample(sample),
                 },
                 velocity: Vec2::new(),
+                weight: 1.0,
             });
-        }*/
+        }
         println!("len: {}", particles.len());
 
         let particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
@@ -385,14 +374,10 @@ impl World {
         }
     }
 
-    fn recursive_find_wrong_pos() {
-
-    }
+    fn recursive_find_wrong_pos() {}
 
     fn update_tree(&mut self, counter: &mut Counting) {
         let mut to_update: Vec<Particle> = Vec::new();
-
-
 
         let timer = Instant::now();
 
@@ -428,7 +413,12 @@ impl World {
             QuadTreeType::Leaf(points) => {
                 for point in points.iter().flatten() {
                     if !std::ptr::eq(particle, point) {
-                        *accel += calculate_gravity(&particle.position, &point.position, 1.0);
+                        *accel += calculate_gravity(
+                            &particle.position,
+                            &point.position,
+                            particle.weight,
+                            1.0,
+                        );
                     }
                 }
             }
@@ -440,8 +430,12 @@ impl World {
                     && tree.boundary.height2
                         < dist2(&particle.position, &tree.center_of_gravity) * THETA * THETA
                 {
-                    *accel +=
-                        calculate_gravity(&particle.position, &tree.center_of_gravity, *total_mass);
+                    *accel += calculate_gravity(
+                        &particle.position,
+                        &tree.center_of_gravity,
+                        particle.weight,
+                        *total_mass,
+                    );
                 } else {
                     for child in children.iter() {
                         Self::sum_gravity(particle, child, accel);
