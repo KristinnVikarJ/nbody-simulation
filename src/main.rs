@@ -2,6 +2,7 @@ mod quad_tree;
 
 use flume::{Receiver, Sender};
 use quad_tree::{QuadTree, QuadTreeType};
+use rand::distributions::Uniform;
 use std::borrow::Borrow;
 use std::iter::Sum;
 use std::ops;
@@ -18,13 +19,16 @@ use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
+use jemallocator::Jemalloc;
 
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 use crate::quad_tree::Rectangle;
 
 const HEIGHT: u32 = 1000;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.001; // Multiplier of current step size, Lower = higher quality
-const THETA: f64 = 0.9; // Represents ratio of width/distance, Lower = higher quality
+const STEP_SIZE: f64 = 0.005; // Multiplier of current step size, Lower = higher quality
+const THETA: f64 = 0.7; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
     particle_tree: QuadTree,
@@ -48,7 +52,7 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
         frame[offset] = 0xff; // R
         frame[offset + 1] = 0xff - velocity; // G
         frame[offset + 2] = 0xff - velocity; // B
-        if frame[offset + 3] < 0xff && frame[offset + 3] + 10 > frame[offset + 3] {
+        if frame[offset + 3] < 0xff && frame[offset + 3] <= 240 {
             frame[offset + 3] += 10; // A
         }
     }
@@ -320,20 +324,40 @@ impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
-        let circle1 = Vec2 { x: 500.0, y: 500.0 };
+        let sample = Uniform::new(0f64, HEIGHT as f64);
+        let circle1 = Vec2 { x: 400.0, y: 400.0 };
+        let circle2 = Vec2 { x: 650.0, y: 650.0 };
 
-        let c1lenr2 = 10000.0;
+        let c1lenr2 = 12000.0;
 
+        
+        for x in 0..(HEIGHT*2) - 2 {
+            for y in 0..(HEIGHT*2) - 2 {
+                let pos = Vec2 {
+                    x: (x as f64) / 2.0,
+                    y: (y as f64) / 2.0,
+                };
+                if dist2(&pos, &circle1) < c1lenr2
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
+                {
+                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.195);
+                    particles.push(Particle {
+                        position: pos,
+                        velocity,
+                    });
+                }
+            }
+        }
         for x in 0..HEIGHT - 1 {
             for y in 0..HEIGHT - 1 {
                 let pos = Vec2 {
                     x: x as f64,
                     y: y as f64,
                 };
-                if dist2(&pos, &circle1) < c1lenr2
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
+                if dist2(&pos, &circle2) < c1lenr2
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 1500.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.175);
+                    let velocity = rotate_right(&pos.sub(&circle2)).mul(0.195);
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -342,16 +366,15 @@ impl World {
             }
         }
         /*
-         */
-        for _ in 0..1_000 {
+        for _ in 0..100_000 {
             particles.push(Particle {
                 position: Vec2 {
-                    x: rng.gen_range(0f64..HEIGHT as f64),
-                    y: rng.gen_range(0f64..HEIGHT as f64),
+                    x: rng.sample(sample),
+                    y: rng.sample(sample),
                 },
                 velocity: Vec2::new(),
             });
-        }
+        }*/
         println!("len: {}", particles.len());
 
         let particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
@@ -360,6 +383,22 @@ impl World {
             particle_tree,
             particles,
         }
+    }
+
+    fn recursive_find_wrong_pos() {
+
+    }
+
+    fn update_tree(&mut self, counter: &mut Counting) {
+        let mut to_update: Vec<Particle> = Vec::new();
+
+
+
+        let timer = Instant::now();
+
+        self.particle_tree.calculate_gravity();
+
+        counter.calculate_gravity += timer.elapsed().as_secs_f64();
     }
 
     fn rebuild_tree(&mut self, counter: &mut Counting) {
