@@ -10,6 +10,7 @@ use std::thread::spawn;
 use std::time::Instant;
 
 use error_iter::ErrorIter as _;
+#[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
@@ -21,6 +22,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
+#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 use crate::quad_tree::Rectangle;
@@ -293,7 +295,7 @@ fn dist(pos1: &Vec2, pos2: &Vec2) -> f64 {
 }
 
 #[inline(always)]
-fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, weight: f64, force: f64) -> Vec2 {
+fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, force: f64) -> Vec2 {
     let xdiff = particle2.x - particle1.x;
     let ydiff = particle2.y - particle1.y;
 
@@ -310,7 +312,7 @@ fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, weight: f64, force: f64
         distance = 0.001f64;
     }
 
-    let reduced_force = (force * weight) / distance;
+    let reduced_force = force / distance;
 
     Vec2 {
         x: (xdiff / sum) * reduced_force,
@@ -323,15 +325,20 @@ impl World {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
         let sample = Uniform::new(0f64, HEIGHT as f64);
-        let circle1 = Vec2 { x: 400.0, y: 400.0 };
-        let circle2 = Vec2 { x: 650.0, y: 650.0 };
+        let circle1 = Vec2 { x: 350.0, y: 350.0 };
+        let circle2 = Vec2 { x: 600.0, y: 600.0 };
         particles.push(Particle {
             position: circle1.clone(),
             velocity: Vec2::new(),
-            weight: 20000.0,
+            weight: 75000.0,
+        });
+        particles.push(Particle {
+            position: circle2.clone(),
+            velocity: Vec2::new(),
+            weight: 75000.0,
         });
 
-        let c1lenr2 = 12000.0;
+        let c1lenr2 = 7500.0;
 
         for x in 0..(HEIGHT - 1) * 3 {
             for y in 0..(HEIGHT - 1) * 3 {
@@ -340,10 +347,11 @@ impl World {
                     y: y as f64 / 3.0,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
-                    && dist2(&pos, &circle1) > 300.0
+                    && dist2(&pos, &circle1) > 500.0
                     && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle1)).mul(0.8);
+                    let velocity =
+                        rotate_right(&pos.sub(&circle1)).mul(1600.0 / dist2(&pos, &circle1));
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -352,8 +360,27 @@ impl World {
                 }
             }
         }
-        /*
-         */
+
+        for x in 0..(HEIGHT - 1) * 3 {
+            for y in 0..(HEIGHT - 1) * 3 {
+                let pos = Vec2 {
+                    x: x as f64 / 3.0,
+                    y: y as f64 / 3.0,
+                };
+                if dist2(&pos, &circle2) < c1lenr2
+                    && dist2(&pos, &circle2) > 500.0
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 1500.0
+                {
+                    let velocity =
+                        rotate_right(&pos.sub(&circle2)).mul(1600.0 / dist2(&pos, &circle2));
+                    particles.push(Particle {
+                        position: pos,
+                        velocity,
+                        weight: 1.0,
+                    });
+                }
+            }
+        }
         for _ in 0..2_000 {
             particles.push(Particle {
                 position: Vec2 {
@@ -413,12 +440,8 @@ impl World {
             QuadTreeType::Leaf(points) => {
                 for point in points.iter().flatten() {
                     if !std::ptr::eq(particle, point) {
-                        *accel += calculate_gravity(
-                            &particle.position,
-                            &point.position,
-                            particle.weight,
-                            1.0,
-                        );
+                        *accel +=
+                            calculate_gravity(&particle.position, &point.position, point.weight);
                     }
                 }
             }
@@ -430,12 +453,8 @@ impl World {
                     && tree.boundary.height2
                         < dist2(&particle.position, &tree.center_of_gravity) * THETA * THETA
                 {
-                    *accel += calculate_gravity(
-                        &particle.position,
-                        &tree.center_of_gravity,
-                        particle.weight,
-                        *total_mass,
-                    );
+                    *accel +=
+                        calculate_gravity(&particle.position, &tree.center_of_gravity, *total_mass);
                 } else {
                     for child in children.iter() {
                         Self::sum_gravity(particle, child, accel);
