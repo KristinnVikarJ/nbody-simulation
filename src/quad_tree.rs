@@ -1,14 +1,14 @@
-use crate::{Particle, Vec2};
+use crate::{Particle, SmallVec2, Vec2};
 
 #[derive(Clone)]
 pub struct Rectangle {
-    pub offset: Vec2,
-    pub height: f64,
-    pub height2: f64,
+    pub offset: SmallVec2,
+    pub height: f32,
+    pub height2: f32,
 }
 
 impl Rectangle {
-    pub fn new(offset: Vec2, height: f64) -> Self {
+    pub fn new(offset: SmallVec2, height: f32) -> Self {
         Self {
             offset,
             height,
@@ -17,14 +17,14 @@ impl Rectangle {
     }
 
     pub fn contains(self: &Rectangle, other: &Vec2) -> bool {
-        other.y > self.offset.y
-            && other.x > self.offset.x
-            && other.x < (self.offset.x + self.height)
-            && other.y < (self.offset.y + self.height)
+        other.y as f32 > self.offset.y
+            && (other.x as f32) > self.offset.x
+            && (other.x as f32) < (self.offset.x + self.height)
+            && (other.y as f32) < (self.offset.y + self.height)
     }
 
-    pub fn offset(self: &Rectangle, x: f64, y: f64) -> Vec2 {
-        Vec2::new_from(self.offset.x + x, self.offset.y + y)
+    pub fn offset(self: &Rectangle, x: f32, y: f32) -> SmallVec2 {
+        SmallVec2::new_from(self.offset.x + x, self.offset.y + y)
     }
 }
 
@@ -84,8 +84,8 @@ impl QuadTree {
 
                 let hori_half = self.boundary.offset.x + half_height;
                 let vert_half = self.boundary.offset.y + half_height;
-                let north = point.position.y < vert_half;
-                let west = point.position.x < hori_half;
+                let north = point.position.y < vert_half as f64;
+                let west = point.position.x < hori_half as f64;
 
                 match north {
                     true => match west {

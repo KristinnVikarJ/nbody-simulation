@@ -27,7 +27,8 @@ use winit_input_helper::WinitInputHelper;
 static GLOBAL: Jemalloc = Jemalloc;
 use crate::quad_tree::Rectangle;
 
-const HEIGHT: u32 = 1000;
+const HEIGHT: u32 = 100_000;
+const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
 const STEP_SIZE: f64 = 0.005; // Multiplier of current step size, Lower = higher quality
 const THETA: f64 = 0.7; // Represents ratio of width/distance, Lower = higher quality
@@ -47,8 +48,10 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
             continue;
         }
 
-        let offset =
-            ((particle.position.y as u32 * HEIGHT) + particle.position.x as u32) as usize * 4;
+        let offset = (((particle.position.y as u32 / (HEIGHT / RENDER_HEIGHT)) * RENDER_HEIGHT)
+            + (particle.position.x as u32 / (HEIGHT / RENDER_HEIGHT)))
+            as usize
+            * 4;
         let velocity = 0x10
             + (((particle.velocity.x.abs() + particle.velocity.y.abs()) * 10.0) as u8).min(0xef);
         frame[offset] = 0xff; // R
@@ -73,7 +76,7 @@ fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
     let mut input = WinitInputHelper::new();
     let window = {
-        let size = LogicalSize::new(HEIGHT as f64, HEIGHT as f64);
+        let size = LogicalSize::new(RENDER_HEIGHT as f64, RENDER_HEIGHT as f64);
         WindowBuilder::new()
             .with_title("Barnes-Hut Simulation")
             .with_inner_size(size)
@@ -85,7 +88,7 @@ fn main() -> Result<(), Error> {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(HEIGHT, HEIGHT, surface_texture)?
+        Pixels::new(RENDER_HEIGHT, RENDER_HEIGHT, surface_texture)?
     };
 
     let (tx, rx): (
@@ -168,6 +171,23 @@ fn log_error<E: std::error::Error + 'static>(method_name: &str, err: E) {
 pub struct Vec2 {
     pub x: f64,
     pub y: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SmallVec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[allow(dead_code)]
+impl SmallVec2 {
+    fn new() -> Self {
+        Self { x: 0f32, y: 0f32 }
+    }
+
+    fn new_from(x: f32, y: f32) -> Self {
+        SmallVec2 { x, y }
+    }
 }
 
 #[allow(dead_code)]
@@ -256,6 +276,7 @@ impl ops::Mul<f64> for &Vec2 {
         }
     }
 }
+
 impl<'a> Sum<Self> for Vec2 {
     fn sum<I>(iter: I) -> Self
     where
@@ -269,7 +290,15 @@ impl<'a> Sum<Self> for Vec2 {
     }
 }
 
-// Assume constant mass of 1 for now
+impl Into<SmallVec2> for Vec2 {
+    fn into(self) -> SmallVec2 {
+        SmallVec2 {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Particle {
     position: Vec2,
@@ -287,11 +316,6 @@ fn dist2(pos1: &Vec2, pos2: &Vec2) -> f64 {
     let xdiff = pos2.x - pos1.x;
     let ydiff = pos2.y - pos1.y;
     (xdiff * xdiff) + (ydiff * ydiff)
-}
-
-#[inline(always)]
-fn dist(pos1: &Vec2, pos2: &Vec2) -> f64 {
-    dist2(pos1, pos2).sqrt()
 }
 
 #[inline(always)]
@@ -325,33 +349,39 @@ impl World {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
         let sample = Uniform::new(0f64, HEIGHT as f64);
-        let circle1 = Vec2 { x: 350.0, y: 350.0 };
-        let circle2 = Vec2 { x: 600.0, y: 600.0 };
+        let circle1 = Vec2 {
+            x: 35000.0,
+            y: 35000.0,
+        };
+        let circle2 = Vec2 {
+            x: 60000.0,
+            y: 60000.0,
+        };
         particles.push(Particle {
             position: circle1.clone(),
             velocity: Vec2::new(),
-            weight: 75000.0,
+            weight: 750000.0,
         });
         particles.push(Particle {
             position: circle2.clone(),
             velocity: Vec2::new(),
-            weight: 75000.0,
+            weight: 750000.0,
         });
 
-        let c1lenr2 = 7500.0;
+        let c1lenr2 = 15000000.0;
 
-        for x in 0..(HEIGHT - 1) * 3 {
-            for y in 0..(HEIGHT - 1) * 3 {
+        for x in 0..((HEIGHT / 14) - 1) {
+            for y in 0..((HEIGHT / 14) - 1) {
                 let pos = Vec2 {
-                    x: x as f64 / 3.0,
-                    y: y as f64 / 3.0,
+                    x: x as f64 * 14.0,
+                    y: y as f64 * 14.0,
                 };
                 if dist2(&pos, &circle1) < c1lenr2
-                    && dist2(&pos, &circle1) > 500.0
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 1500.0
+                    && dist2(&pos, &circle1) > 500000.0
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle1)) + 1.0) > 6000000.0
                 {
-                    let velocity =
-                        rotate_right(&pos.sub(&circle1)).mul(1600.0 / dist2(&pos, &circle1));
+                    let velocity = rotate_right(&pos.sub(&circle1))
+                        .mul(((750000.0f64).sqrt() / (dist2(&pos, &circle1))).sqrt());
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -361,18 +391,18 @@ impl World {
             }
         }
 
-        for x in 0..(HEIGHT - 1) * 3 {
-            for y in 0..(HEIGHT - 1) * 3 {
+        for x in 0..((HEIGHT / 14) - 1) {
+            for y in 0..((HEIGHT / 14) - 1) {
                 let pos = Vec2 {
-                    x: x as f64 / 3.0,
-                    y: y as f64 / 3.0,
+                    x: x as f64 * 14.0,
+                    y: y as f64 * 14.0,
                 };
                 if dist2(&pos, &circle2) < c1lenr2
-                    && dist2(&pos, &circle2) > 500.0
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 1500.0
+                    && dist2(&pos, &circle2) > 500000.0
+                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 6000000.0
                 {
-                    let velocity =
-                        rotate_right(&pos.sub(&circle2)).mul(1600.0 / dist2(&pos, &circle2));
+                    let velocity = rotate_right(&pos.sub(&circle2))
+                        .mul(((750000.0f64).sqrt() / (dist2(&pos, &circle2))).sqrt());
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -393,7 +423,7 @@ impl World {
         }
         println!("len: {}", particles.len());
 
-        let particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
+        let particle_tree = QuadTree::new(Rectangle::new(SmallVec2::new(), HEIGHT as f32));
 
         Self {
             particle_tree,
@@ -401,29 +431,14 @@ impl World {
         }
     }
 
-    fn recursive_find_wrong_pos() {}
-
-    fn update_tree(&mut self, counter: &mut Counting) {
-        let mut to_update: Vec<Particle> = Vec::new();
-
-        let timer = Instant::now();
-
-        self.particle_tree.calculate_gravity();
-
-        counter.calculate_gravity += timer.elapsed().as_secs_f64();
-    }
-
     fn rebuild_tree(&mut self, counter: &mut Counting) {
-        let mut particle_tree = QuadTree::new(Rectangle::new(Vec2::new(), HEIGHT as f64));
+        let mut particle_tree = QuadTree::new(Rectangle::new(SmallVec2::new(), HEIGHT as f32));
 
-        let mut offset = 0;
-        for (idx, particle) in self.particles.clone().iter().enumerate() {
-            if particle_tree.boundary.contains(&particle.position) {
-                particle_tree.insert(particle.clone());
-            } else {
-                self.particles.remove(idx - offset);
-                offset += 1;
-            }
+        self.particles
+            .retain(|particle| particle_tree.boundary.contains(&particle.position));
+
+        for particle in self.particles.iter() {
+            particle_tree.insert(particle.clone());
         }
 
         let timer = Instant::now();
@@ -450,7 +465,7 @@ impl World {
                 children,
             } => {
                 if !tree.boundary.contains(&particle.position)
-                    && tree.boundary.height2
+                    && (tree.boundary.height2 as f64)
                         < dist2(&particle.position, &tree.center_of_gravity) * THETA * THETA
                 {
                     *accel +=
