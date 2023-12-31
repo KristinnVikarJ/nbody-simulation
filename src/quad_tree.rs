@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::{Particle, SmallVec2, Vec2};
 
 #[derive(Clone)]
@@ -35,26 +37,28 @@ pub struct QuadTree {
 }
 
 pub enum QuadTreeType {
-    Leaf(Box<[Option<Particle>; 4]>),
+    Leaf {
+        count: u8,
+        children: Box<[Option<Particle>; 4]> },
     Root {
-        total_mass: f64,
+        total_mass: f32,
         children: Box<[QuadTree; 4]>,
     },
 }
 
 impl QuadTree {
-    const MAX_CAPACITY: usize = 4;
+    const MAX_CAPACITY: u8 = 4;
     pub fn new(boundary: Rectangle) -> Self {
         QuadTree {
             boundary,
-            tree_type: QuadTreeType::Leaf(Box::from([None, None, None, None])),
+            tree_type: QuadTreeType::Leaf{ count: 0, children: Box::from([None, None, None, None]) },
             center_of_gravity: Vec2::new(),
         }
     }
 
-    pub fn get_total_mass(&self) -> f64 {
+    pub fn get_total_mass(&self) -> f32 {
         match &self.tree_type {
-            QuadTreeType::Leaf(points) => points
+            QuadTreeType::Leaf {count: _, children} => children
                 .iter()
                 .flatten()
                 .fold(0.0, |a, particle| a + particle.weight),
@@ -67,13 +71,12 @@ impl QuadTree {
 
     pub fn insert(&mut self, point: Particle) {
         match self.tree_type {
-            QuadTreeType::Leaf(ref mut points) => {
-                let len = points.iter().flatten().count();
-                if len == QuadTree::MAX_CAPACITY {
+            QuadTreeType::Leaf{count, ref mut children} => {
+                if count == QuadTree::MAX_CAPACITY {
                     self.subdivide();
                     self.insert(point);
                 } else {
-                    points[len] = Some(point);
+                    children[count as usize] = Some(point);
                 }
             }
             QuadTreeType::Root {
@@ -102,8 +105,8 @@ impl QuadTree {
     }
 
     fn subdivide(&mut self) {
-        match &self.tree_type {
-            QuadTreeType::Leaf(points) => {
+        match &mut self.tree_type {
+            QuadTreeType::Leaf{count, children} => {
                 let new_height = self.boundary.height / 2.0;
 
                 let mut new = QuadTree {
@@ -124,12 +127,14 @@ impl QuadTree {
                                 new_height,
                             )),
                         ]),
-                        total_mass: points.len() as f64,
+                        total_mass: *count as f32,
                     },
                     center_of_gravity: self.center_of_gravity.clone(),
                 };
-                for p in points.iter().flatten() {
-                    new.insert(p.clone());
+
+                let current_children = mem::take(children);
+                for p in current_children.into_iter().flatten() {
+                    new.insert(p);
                 }
                 *self = new;
             }
@@ -139,14 +144,13 @@ impl QuadTree {
 
     pub fn calculate_gravity(&mut self) {
         match self.tree_type {
-            QuadTreeType::Leaf(ref points) => {
-                let len = points.iter().flatten().count();
-                if len > 0 {
-                    self.center_of_gravity = points
+            QuadTreeType::Leaf{count, ref children} => {
+                if count > 0 {
+                    self.center_of_gravity = children
                         .iter()
                         .flatten()
                         .fold(Vec2::new(), |acc, part| acc.add(&part.position))
-                        .div(len as f64);
+                        .div(count as f64);
                 }
             }
             QuadTreeType::Root {
@@ -160,10 +164,10 @@ impl QuadTree {
                 let mass = children.iter().map(|child| child.get_total_mass()).sum();
 
                 let big_thing = children.iter().fold(Vec2::new(), |acc, child| {
-                    acc.add(&child.center_of_gravity.mul(child.get_total_mass()))
+                    acc.add(&child.center_of_gravity.mul_32(child.get_total_mass()))
                 });
 
-                self.center_of_gravity = big_thing.div(mass);
+                self.center_of_gravity = big_thing.div_32(mass);
                 *total_mass = mass;
             }
         }
