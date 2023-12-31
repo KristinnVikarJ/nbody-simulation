@@ -30,7 +30,7 @@ use crate::quad_tree::Rectangle;
 const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.005; // Multiplier of current step size, Lower = higher quality
+const STEP_SIZE: f64 = 0.05; // Multiplier of current step size, Lower = higher quality
 const THETA: f64 = 1.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
@@ -307,7 +307,7 @@ impl Into<SmallVec2> for Vec2 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Particle {
     position: Vec2,
     velocity: Vec2,
@@ -479,7 +479,7 @@ impl World {
                     *accel +=
                         calculate_gravity(&particle.position, &tree.center_of_gravity, *total_mass);
                 } else {
-                    for child in children.iter() {
+                    for child in children.iter().flatten() {
                         Self::sum_gravity(particle, child, accel);
                     }
                 }
@@ -552,7 +552,7 @@ impl World {
                     total_mass: _,
                     children,
                 } => {
-                    for child in children.iter() {
+                    for child in children.iter().flatten() {
                         self.draw_tree(child, frame);
                     }
                 }
@@ -580,7 +580,7 @@ impl World {
                     total_mass: _,
                     children,
                 } => {
-                    for child in children.iter() {
+                    for child in children.iter().flatten() {
                         self.draw_weights(child, frame);
                     }
                 }
