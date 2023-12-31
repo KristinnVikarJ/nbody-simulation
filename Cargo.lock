@@ -883,7 +883,6 @@ dependencies = [
  "flume",
  "jemallocator",
  "log",
- "once_cell",
  "pixels",
  "rand",
  "rayon",

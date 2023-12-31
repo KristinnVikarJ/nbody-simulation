@@ -39,7 +39,8 @@ pub struct QuadTree {
 pub enum QuadTreeType {
     Leaf {
         count: u8,
-        children: Box<[Option<Particle>; 4]> },
+        children: Box<[Option<Particle>; 4]>,
+    },
     Root {
         total_mass: f32,
         children: Box<[Option<QuadTree>; 4]>,
@@ -51,14 +52,17 @@ impl QuadTree {
     pub fn new(boundary: Rectangle) -> Self {
         QuadTree {
             boundary,
-            tree_type: QuadTreeType::Leaf{ count: 0, children: Box::from([None, None, None, None]) },
+            tree_type: QuadTreeType::Leaf {
+                count: 0,
+                children: Box::from([None, None, None, None]),
+            },
             center_of_gravity: Vec2::new(),
         }
     }
 
     pub fn get_total_mass(&self) -> f32 {
         match &self.tree_type {
-            QuadTreeType::Leaf {count: _, children} => children
+            QuadTreeType::Leaf { count: _, children } => children
                 .iter()
                 .flatten()
                 .fold(0.0, |a, particle| a + particle.weight),
@@ -71,7 +75,10 @@ impl QuadTree {
 
     pub fn insert(&mut self, point: Particle) {
         match self.tree_type {
-            QuadTreeType::Leaf{ref mut count, ref mut children} => {
+            QuadTreeType::Leaf {
+                ref mut count,
+                ref mut children,
+            } => {
                 if *count == QuadTree::MAX_CAPACITY {
                     self.subdivide();
                     self.insert(point);
@@ -95,10 +102,13 @@ impl QuadTree {
                     true => match west {
                         true => {
                             if children[0].is_none() {
-                                children[0] = Some(QuadTree::new(Rectangle::new(self.boundary.offset.clone(), half_height)));
+                                children[0] = Some(QuadTree::new(Rectangle::new(
+                                    self.boundary.offset.clone(),
+                                    half_height,
+                                )));
                             }
                             children[0].as_mut().unwrap().insert(point)
-                        },
+                        }
                         false => {
                             if children[1].is_none() {
                                 children[1] = Some(QuadTree::new(Rectangle::new(
@@ -107,7 +117,7 @@ impl QuadTree {
                                 )));
                             }
                             children[1].as_mut().unwrap().insert(point)
-                        },
+                        }
                     },
                     false => match west {
                         true => {
@@ -118,7 +128,7 @@ impl QuadTree {
                                 )));
                             }
                             children[2].as_mut().unwrap().insert(point)
-                        },
+                        }
                         false => {
                             if children[3].is_none() {
                                 children[3] = Some(QuadTree::new(Rectangle::new(
@@ -127,7 +137,7 @@ impl QuadTree {
                                 )));
                             }
                             children[3].as_mut().unwrap().insert(point)
-                        },
+                        }
                     },
                 };
             }
@@ -135,30 +145,30 @@ impl QuadTree {
     }
 
     fn subdivide(&mut self) {
-        match &mut self.tree_type {
-            QuadTreeType::Leaf{count, children} => {
-                let mut new = QuadTree {
-                    boundary: self.boundary.clone(),
-                    tree_type: QuadTreeType::Root {
-                        children: Box::from([None, None, None, None]),
-                        total_mass: *count as f32,
-                    },
-                    center_of_gravity: Vec2::new(),
-                };
-                
-                let current_children = mem::take(children);
-                for p in current_children.into_iter().flatten() {
-                    new.insert(p);
-                }
-                *self = new;
+        if let QuadTreeType::Leaf { count, children } = &mut self.tree_type {
+            let mut new = QuadTree {
+                boundary: self.boundary.clone(),
+                tree_type: QuadTreeType::Root {
+                    children: Box::from([None, None, None, None]),
+                    total_mass: *count as f32,
+                },
+                center_of_gravity: Vec2::new(),
+            };
+
+            let current_children = mem::take(children);
+            for p in current_children.into_iter() {
+                new.insert(p.unwrap());
             }
-            _ => {}
+            *self = new;
         }
     }
 
     pub fn calculate_gravity(&mut self) {
         match self.tree_type {
-            QuadTreeType::Leaf{count, ref children} => {
+            QuadTreeType::Leaf {
+                count,
+                ref children,
+            } => {
                 if count > 0 {
                     self.center_of_gravity = children
                         .iter()
@@ -176,7 +186,11 @@ impl QuadTree {
                     .flatten()
                     .for_each(|child| child.calculate_gravity());
 
-                let mass = children.iter().flatten().map(|child| child.get_total_mass()).sum();
+                let mass = children
+                    .iter()
+                    .flatten()
+                    .map(|child| child.get_total_mass())
+                    .sum();
 
                 let big_thing = children.iter().flatten().fold(Vec2::new(), |acc, child| {
                     acc.add(&child.center_of_gravity.mul_32(child.get_total_mass()))
