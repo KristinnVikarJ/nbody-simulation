@@ -58,7 +58,7 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
         frame[offset] = 0xff; // R
         frame[offset + 1] = 0xff - velocity; // G
         frame[offset + 2] = 0xff - velocity; // B
-        if frame[offset + 3] < 0xff && frame[offset + 3] <= 240 {
+        if frame[offset + 3] <= 240 {
             frame[offset + 3] += 10; // A
         }
     }
@@ -286,7 +286,7 @@ impl ops::Mul<f64> for &Vec2 {
     }
 }
 
-impl<'a> Sum<Self> for Vec2 {
+impl Sum<Self> for Vec2 {
     fn sum<I>(iter: I) -> Self
     where
         I: Iterator<Item = Self>,
@@ -299,11 +299,11 @@ impl<'a> Sum<Self> for Vec2 {
     }
 }
 
-impl Into<SmallVec2> for Vec2 {
-    fn into(self) -> SmallVec2 {
+impl From<Vec2> for SmallVec2 {
+    fn from(val: Vec2) -> SmallVec2 {
         SmallVec2 {
-            x: self.x as f32,
-            y: self.y as f32,
+            x: val.x as f32,
+            y: val.y as f32,
         }
     }
 }
@@ -516,81 +516,84 @@ impl World {
         self.particles.clone()
     }
 
-    fn draw_tree(&self, node: &QuadTree, frame: &mut [u8]) {
-        if node.get_total_mass() > 3000.0 {
-            for x in [
-                (node.boundary.offset.x as usize),
-                ((node.boundary.offset.x + node.boundary.height - 1.0) as usize),
-            ] {
-                for y in (node.boundary.offset.y as usize)
-                    ..((node.boundary.offset.y + node.boundary.height) as usize)
-                {
-                    let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-                    frame[offset] = 0xff; // R
-                    frame[offset + 1] = 0xff; // G
-                    frame[offset + 2] = 0xff; // B
-                    frame[offset + 3] = 0xff; // A
-                }
-            }
-            for x in (node.boundary.offset.x as usize)
-                ..((node.boundary.offset.x + node.boundary.height) as usize)
+}
+
+#[allow(dead_code)]
+fn draw_tree(node: &QuadTree, frame: &mut [u8]) {
+    if node.get_total_mass() > 3000.0 {
+        for x in [
+            (node.boundary.offset.x as usize),
+            ((node.boundary.offset.x + node.boundary.height - 1.0) as usize),
+        ] {
+            for y in (node.boundary.offset.y as usize)
+                ..((node.boundary.offset.y + node.boundary.height) as usize)
             {
-                for y in [
-                    (node.boundary.offset.y as usize),
-                    ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
-                ] {
-                    let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-                    frame[offset] = 0xff; // R
-                    frame[offset + 1] = 0xff; // G
-                    frame[offset + 2] = 0xff; // B
-                    frame[offset + 3] = 0xff; // A
-                }
+                let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
+                frame[offset] = 0xff; // R
+                frame[offset + 1] = 0xff; // G
+                frame[offset + 2] = 0xff; // B
+                frame[offset + 3] = 0xff; // A
             }
-            match &node.tree_type {
-                QuadTreeType::Leaf {
-                    count: _,
-                    children: _,
-                } => {
-                    // we done here boys
-                }
-                QuadTreeType::Root {
-                    total_mass: _,
-                    children,
-                } => {
-                    for child in children.iter().flatten() {
-                        self.draw_tree(child, frame);
-                    }
+        }
+        for x in (node.boundary.offset.x as usize)
+            ..((node.boundary.offset.x + node.boundary.height) as usize)
+        {
+            for y in [
+                (node.boundary.offset.y as usize),
+                ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
+            ] {
+                let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
+                frame[offset] = 0xff; // R
+                frame[offset + 1] = 0xff; // G
+                frame[offset + 2] = 0xff; // B
+                frame[offset + 3] = 0xff; // A
+            }
+        }
+        match &node.tree_type {
+            QuadTreeType::Leaf {
+                count: _,
+                children: _,
+            } => {
+                // we done here boys
+            }
+            QuadTreeType::Root {
+                total_mass: _,
+                children,
+            } => {
+                for child in children.iter().flatten() {
+                    draw_tree(child, frame);
                 }
             }
         }
     }
+}
 
-    fn draw_weights(&self, node: &QuadTree, frame: &mut [u8]) {
-        if node.get_total_mass() > 3000.0 {
-            let x = node.center_of_gravity.x;
-            let y = node.center_of_gravity.y;
-            let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-            if offset >= 8294400 {
-                return;
+#[allow(dead_code)]
+fn draw_weights(node: &QuadTree, frame: &mut [u8]) {
+    if node.get_total_mass() > 3000.0 {
+        let x = node.center_of_gravity.x;
+        let y = node.center_of_gravity.y;
+        let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
+        if offset >= 8294400 {
+            return;
+        }
+        frame[offset] = 0; // R
+        frame[offset + 1] = 0xff; // G
+        frame[offset + 2] = 0; // B
+        frame[offset + 3] = 0xff; // A
+        match &node.tree_type {
+            QuadTreeType::Leaf {
+                count: _,
+                children: _,
+            } => {
+                // we done here boys
             }
-            frame[offset] = 0; // R
-            frame[offset + 1] = 0xff; // G
-            frame[offset + 2] = 0; // B
-            frame[offset + 3] = 0xff; // A
-            match &node.tree_type {
-                QuadTreeType::Leaf {
-                    count: _,
-                    children: _,
-                } => {
-                    // we done here boys
-                }
-                QuadTreeType::Root {
-                    total_mass: _,
-                    children,
-                } => {
-                    for child in children.iter().flatten() {
-                        self.draw_weights(child, frame);
-                    }
+            QuadTreeType::Root {
+                total_mass: _,
+                children,
+            } => {
+                for child in children.iter().flatten() {
+                    draw_weights(child, frame);
                 }
             }
         }
