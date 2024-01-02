@@ -883,11 +883,13 @@ dependencies = [
  "flume",
  "jemallocator",
  "log",
+ "numquant",
  "pixels",
  "rand",
  "rayon",
  "winit",
  "winit_input_helper",
+ "zstd",
 ]
 
 [[package]]
@@ -1014,6 +1016,12 @@ dependencies = [
  "quote",
  "syn 2.0.31",
 ]
+
+[[package]]
+name = "numquant"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54809e43d79aa532432c0d03c6adf62fdd96f2e152b90cef6cd9a316c3da4d99"
 
 [[package]]
 name = "objc"
@@ -2098,3 +2106,31 @@ name = "xml-rs"
 version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47430998a7b5d499ccee752b41567bc3afc57e1327dc855b1a2aa44ce29b5fa1"
+
+[[package]]
+name = "zstd"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bffb3309596d527cfcba7dfc6ed6052f1d39dfbd7c867aa2e865e4a449c10110"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43747c7422e2924c11144d5229878b98180ef8b06cca4ab5af37afc8a8d8ea3e"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.9+zstd.1.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e16efa8a874a0481a574084d34cc26fdb3b99627480f785888deb6386506656"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

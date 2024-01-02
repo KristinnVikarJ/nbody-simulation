@@ -42,7 +42,7 @@ pub enum QuadTreeType {
         children: Box<[Option<Particle>; 4]>,
     },
     Root {
-        total_mass: f32,
+        total_mass: u32,
         children: Box<[Option<QuadTree>; 4]>,
     },
 }
@@ -60,12 +60,67 @@ impl QuadTree {
         }
     }
 
-    pub fn get_total_mass(&self) -> f32 {
+    pub fn empty(&mut self) -> u32 {
+        match &mut self.tree_type {
+            QuadTreeType::Leaf { count, children } => {
+                *count = 0;
+                children.iter_mut().for_each(|child| *child = None);
+                return 1;
+            },
+            QuadTreeType::Root { total_mass, children } => {
+                if *total_mass == 0 {
+                    return 1;
+                }
+                *total_mass = 0;
+                let mut sum = 0;
+                for child in children.iter_mut().flatten() {
+                    sum += child.empty();
+                }
+                return sum + 1;
+            }
+        }
+    }
+
+    // Must be ran after calculate_gravity
+    pub fn prune(&mut self) -> u32 {
+        let mut sum = 0;
+        match &mut self.tree_type {
+            QuadTreeType::Leaf { count: _, children: _ } => {},
+            QuadTreeType::Root { total_mass: _, children } => {
+                for child in children.iter_mut() {
+                    let mut child_empty = false;
+                    if let Some(inner_child) = child {
+                        match &mut inner_child.tree_type {
+                            QuadTreeType::Leaf { count , children: _ } => {
+                                if *count == 0 {
+                                    child_empty = true
+                                }
+                            },
+                            QuadTreeType::Root { total_mass, children: _ } => {
+                                if *total_mass == 0 {
+                                    child_empty = true;
+                                } else {
+                                    sum += inner_child.prune();
+                                }
+                            }
+                        }
+                    }
+                    if child_empty {
+                        *child = None;
+                        sum += 1;
+                    }
+                }
+            }
+        }
+        return sum;
+    }
+
+    pub fn get_total_mass(&self) -> u32 {
         match &self.tree_type {
             QuadTreeType::Leaf { count: _, children } => children
                 .iter()
                 .flatten()
-                .fold(0.0, |a, particle| a + particle.weight),
+                .fold(0, |a, particle| a + particle.weight),
             QuadTreeType::Root {
                 total_mass,
                 children: _,
@@ -150,7 +205,7 @@ impl QuadTree {
                 boundary: self.boundary.clone(),
                 tree_type: QuadTreeType::Root {
                     children: Box::from([None, None, None, None]),
-                    total_mass: *count as f32,
+                    total_mass: *count as u32,
                 },
                 center_of_gravity: Vec2::new(),
             };
@@ -193,10 +248,10 @@ impl QuadTree {
                     .sum();
 
                 let big_thing = children.iter().flatten().fold(Vec2::new(), |acc, child| {
-                    acc.add(&child.center_of_gravity.mul_32(child.get_total_mass()))
+                    acc.add(&child.center_of_gravity.mul_32(child.get_total_mass() as f32))
                 });
 
-                self.center_of_gravity = big_thing.div_32(mass);
+                self.center_of_gravity = big_thing.div_32(mass as f32);
                 *total_mass = mass;
             }
         }
