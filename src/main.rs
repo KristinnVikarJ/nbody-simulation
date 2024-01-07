@@ -1,15 +1,14 @@
 mod quad_tree;
 
 use flume::{Receiver, Sender};
+use pathfinder_geometry::vector::{vec2f, Vector2F as Vec2};
 use quad_tree::{QuadTree, QuadTreeType};
 use rand::distributions::Uniform;
 use rayon::iter::IndexedParallelIterator;
-use zstd::bulk::compress;
-use std::borrow::Borrow;
-use std::iter::Sum;
-use std::{ops, mem};
 use std::thread::spawn;
 use std::time::Instant;
+use std::{mem, ops};
+use zstd::bulk::compress;
 
 use error_iter::ErrorIter as _;
 #[cfg(not(target_env = "msvc"))]
@@ -32,8 +31,8 @@ use crate::quad_tree::Rectangle;
 const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f64 = 0.05; // Multiplier of current step size, Lower = higher quality
-const THETA: f64 = 1.0; // Represents ratio of width/distance, Lower = higher quality
+const STEP_SIZE: f32 = 0.05; // Multiplier of current step size, Lower = higher quality
+const THETA: f32 = 2.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
     particle_tree: QuadTree,
@@ -50,8 +49,8 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
             continue;
         }
 
-        let offset = (((particle.position.y as u32 / (HEIGHT / RENDER_HEIGHT)) * RENDER_HEIGHT)
-            + (particle.position.x as u32 / (HEIGHT / RENDER_HEIGHT)))
+        let offset = (((particle.position.y() as u32 / (HEIGHT / RENDER_HEIGHT)) * RENDER_HEIGHT)
+            + (particle.position.x() as u32 / (HEIGHT / RENDER_HEIGHT)))
             as usize
             * 4;
         if particle.weight > 10 {
@@ -61,7 +60,8 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
             frame[offset + 3] = 0xff;
         } else if frame[offset + 3] != 0xff {
             let velocity = 0x10
-                + (((particle.velocity.x.abs() + particle.velocity.y.abs()) * 10.0) as u8).min(0xef);
+                + (((particle.velocity.x().abs() + particle.velocity.y().abs()) * 10.0) as u8)
+                    .min(0xef);
             frame[offset] = 0xff; // R
             frame[offset + 1] = 0xff - velocity; // G
             frame[offset + 2] = 0xff - velocity; // B
@@ -119,10 +119,10 @@ fn main() -> Result<(), Error> {
             sum_gravity: 0.0,
         };
         loop {
-            let before: Vec<Vec2> = world.particles.clone().into_iter().filter(|bleh| within_bounds(&bleh.position)).map(|bleh| bleh.position).collect();
-            world.update(STEP_SIZE, &mut counter);
-            let diff: Vec<Vec2> = world.particles.iter().enumerate().map(|(i, v)| before[i].sub(&v.position)).collect();
-            
+            //let before: Vec<Vec2> = world.particles.clone().into_iter().filter(|bleh| within_bounds(&bleh.position)).map(|bleh| bleh.position).collect();
+            world.update(STEP_SIZE, &mut counter, updates % 20 == 0);
+            //let diff: Vec<Vec2> = world.particles.iter().enumerate().map(|(i, v)| before[i].sub(&v.position)).collect();
+
             updates += 1;
 
             /*if updates % 10 == 0 {
@@ -137,7 +137,7 @@ fn main() -> Result<(), Error> {
             }*/
 
             // Send particles over thread
-            if !tx.is_full(){
+            if !tx.is_full() {
                 let _ = tx.try_send((world.particles.clone(), updates, counter.clone()));
             }
         }
@@ -151,6 +151,7 @@ fn main() -> Result<(), Error> {
                 frames += 1;
                 if frame_timer.elapsed().as_secs() >= 1 {
                     println!("fps: {}\nups: {}", frames, updates - last_updates);
+                    println!("step: {}", updates);
                     println!("{:?}", counter);
                     frames = 0;
                     last_updates = updates;
@@ -193,214 +194,99 @@ fn log_error<E: std::error::Error + 'static>(method_name: &str, err: E) {
 }
 
 #[derive(Clone, Debug)]
-pub struct Vec2 {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Clone, Debug)]
-pub struct SmallVec2 {
-    pub x: f32,
-    pub y: f32,
-}
-
-#[allow(dead_code)]
-impl SmallVec2 {
-    fn new() -> Self {
-        Self { x: 0f32, y: 0f32 }
-    }
-
-    fn new_from(x: f32, y: f32) -> Self {
-        SmallVec2 { x, y }
-    }
-}
-
-#[allow(dead_code)]
-impl Vec2 {
-    fn new() -> Self {
-        Self { x: 0f64, y: 0f64 }
-    }
-
-    fn new_from(x: f64, y: f64) -> Self {
-        Vec2 { x, y }
-    }
-
-    fn sub(self: &Vec2, other: &Vec2) -> Vec2 {
-        Vec2::new_from(self.x - other.x, self.y - other.y)
-    }
-
-    fn add(self: &Vec2, other: &Vec2) -> Vec2 {
-        Vec2::new_from(self.x + other.x, self.y + other.y)
-    }
-
-    fn mul(self: &Vec2, scalar: f64) -> Vec2 {
-        Vec2::new_from(self.x * scalar, self.y * scalar)
-    }
-
-    fn mul_32(self: &Vec2, scalar: f32) -> Vec2 {
-        Vec2::new_from(self.x * scalar as f64, self.y * scalar as f64)
-    }
-
-    fn div(self: &Vec2, scalar: f64) -> Vec2 {
-        Vec2::new_from(self.x / scalar, self.y / scalar)
-    }
-
-    fn div_32(self: &Vec2, scalar: f32) -> Vec2 {
-        Vec2::new_from(self.x / scalar as f64, self.y / scalar as f64)
-    }
-
-    fn dot(self: &Vec2, other: &Vec2) -> f64 {
-        self.x * other.x + self.y * other.y
-    }
-
-    fn length(self: &Vec2) -> f64 {
-        (self.x * self.x + self.y * self.y).sqrt()
-    }
-
-    fn normalize(self: &Vec2) -> Vec2 {
-        let length = self.length();
-        // Roughly zero
-        if length <= 0.0001 {
-            return Vec2::new();
-        }
-        Vec2::new_from(self.x / length, self.y / length)
-    }
-}
-
-fn rotate_right(vec: &Vec2) -> Vec2 {
-    Vec2::new_from(vec.y, -vec.x)
-}
-
-impl<R: Borrow<Vec2>> ops::AddAssign<R> for Vec2 {
-    fn add_assign(&mut self, other: R) {
-        let other = other.borrow();
-        self.x += other.x;
-        self.y += other.y;
-    }
-}
-
-impl<R> ops::Add<R> for Vec2
-where
-    Vec2: ops::AddAssign<R>,
-{
-    type Output = Vec2;
-    fn add(mut self, other: R) -> Self::Output {
-        self += other;
-        self
-    }
-}
-
-impl<'a, R> ops::Add<R> for &'a Vec2
-where
-    Vec2: ops::Add<R>,
-{
-    type Output = <Vec2 as ops::Add<R>>::Output;
-    fn add(self, other: R) -> Self::Output {
-        self.clone() + other
-    }
-}
-
-impl ops::Mul<f64> for &Vec2 {
-    type Output = Vec2;
-    fn mul(self, rhs: f64) -> Self::Output {
-        Vec2 {
-            x: self.x * rhs,
-            y: self.y * rhs,
-        }
-    }
-}
-
-impl Sum<Self> for Vec2 {
-    fn sum<I>(iter: I) -> Self
-    where
-        I: Iterator<Item = Self>,
-    {
-        iter.fold(Self { x: 0.0, y: 0.0 }, |mut a, b| {
-            a.x += b.x;
-            a.y += b.y;
-            a
-        })
-    }
-}
-
-impl From<Vec2> for SmallVec2 {
-    fn from(val: Vec2) -> SmallVec2 {
-        SmallVec2 {
-            x: val.x as f32,
-            y: val.y as f32,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct Particle {
     position: Vec2,
     velocity: Vec2,
     weight: u32,
 }
 
-#[inline(always)]
-fn within_bounds(pos: &Vec2) -> bool {
-    pos.y < HEIGHT as f64 && pos.x < HEIGHT as f64 && pos.y >= 0f64 && pos.x >= 0f64
+pub struct SmallParticle {
+    position: Vec2,
+    weight: u32,
+}
+
+impl From<Particle> for SmallParticle {
+    fn from(val: Particle) -> SmallParticle {
+        SmallParticle {
+            position: val.position,
+            weight: val.weight,
+        }
+    }
+}
+impl From<&Particle> for SmallParticle {
+    fn from(val: &Particle) -> SmallParticle {
+        SmallParticle {
+            position: val.position,
+            weight: val.weight,
+        }
+    }
 }
 
 #[inline(always)]
-fn dist2(pos1: &Vec2, pos2: &Vec2) -> f64 {
-    let xdiff = pos2.x - pos1.x;
-    let ydiff = pos2.y - pos1.y;
-    (xdiff * xdiff) + (ydiff * ydiff)
+fn within_bounds(pos: &Vec2) -> bool {
+    pos.y() < HEIGHT as f32 && pos.x() < HEIGHT as f32 && pos.y() >= 0f32 && pos.x() >= 0f32
+}
+
+#[inline(always)]
+fn dist2(pos1: &Vec2, pos2: &Vec2) -> f32 {
+    let diff = *pos1 - *pos2;
+    diff.square_length()
 }
 
 #[inline(always)]
 fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, accel: &mut Vec2, force: f32) {
-    let xdiff = particle2.x - particle1.x;
-    let ydiff = particle2.y - particle1.y;
+    let diff = *particle2 - *particle1;
+
+    let sum = diff.x().abs() + diff.y().abs();
 
     // Validate that we don't have any inf's or NaN etc
-    if !(xdiff + ydiff).is_normal() {
+    if !sum.is_normal() {
         return;
     }
 
-    let sum = ydiff.abs() + xdiff.abs();
-
-    let mut distance = (xdiff * xdiff) + (ydiff * ydiff);
+    let mut distance = diff.square_length();
     // Clamp value
-    if distance < 0.001f64 {
-        distance = 0.001f64;
+    if distance < 0.001f32 {
+        distance = 0.001f32;
     }
 
-    let reduced_force = force as f64 / distance;
+    // According to wolfram alpha
+    *accel += (diff * force) / (sum * distance);
+}
 
-    accel.x = (xdiff / sum).mul_add(reduced_force, accel.x);
-    accel.y = (ydiff / sum).mul_add(reduced_force, accel.y);
+fn make_plummer(n: u32, seed: u32, center_mass: u32) -> Vec<Particle> {
+    let total_mass = n + center_mass;
+    let mut particles = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        let mass = total_mass / n;
+    }
+    particles
+}
+
+fn rotate_right(vec: &Vec2) -> Vec2 {
+    vec2f(vec.y(), -vec.x())
 }
 
 impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
         let mut rng = rand::thread_rng();
-        let sample = Uniform::new(0f64, HEIGHT as f64);
-        let circle1 = Vec2 {
-            x: 35000.0,
-            y: 35000.0,
-        };
-        let circle2 = Vec2 {
-            x: 60000.0,
-            y: 60000.0,
-        };
+        let sample = Uniform::new(0f32, HEIGHT as f32);
+        let circle1 = vec2f(35000.0, 35000.0);
+        let circle2 = vec2f(60000.0, 60000.0);
         particles.push(Particle {
             position: circle1.clone(),
-            velocity: Vec2::new_from(200.0, 250.0),
+            velocity: vec2f(200.0, 250.0),
             weight: 75_000_000,
         });
         particles.push(Particle {
             position: circle2.clone(),
-            velocity: Vec2::new(),
+            velocity: vec2f(0.0, 0.0),
             weight: 750_000,
         });
 
         let c1lenr2 = 15000000.0;
-        /* 
+        /*
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
                 let pos = Vec2 {
@@ -424,16 +310,13 @@ impl World {
 
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
-                let pos = Vec2 {
-                    x: x as f64 * 14.0,
-                    y: y as f64 * 14.0,
-                };
+                let pos = vec2f(x as f32 * 14.0, y as f32 * 14.0);
                 if dist2(&pos, &circle2) < c1lenr2
                     && dist2(&pos, &circle2) > 500000.0
-                    && rng.gen_range(0f64..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 6000000.0
+                    && rng.gen_range(0f32..(c1lenr2 - dist2(&pos, &circle2)) + 1.0) > 6000000.0
                 {
-                    let velocity = rotate_right(&pos.sub(&circle2))
-                        .mul(((750000.0f64).sqrt() / (dist2(&pos, &circle2))).sqrt());
+                    let velocity = rotate_right(&(pos - circle2))
+                        * ((750000.0f32).sqrt() / (dist2(&pos, &circle2))).sqrt();
                     particles.push(Particle {
                         position: pos,
                         velocity,
@@ -442,19 +325,16 @@ impl World {
                 }
             }
         }
-        for _ in 0..10_000 {
+        for _ in 0..1_000_000 {
             particles.push(Particle {
-                position: Vec2 {
-                    x: rng.sample(sample),
-                    y: rng.sample(sample),
-                },
-                velocity: Vec2::new(),
+                position: vec2f(rng.sample(sample), rng.sample(sample)),
+                velocity: vec2f(0.0, 0.0),
                 weight: 1,
             });
         }
         println!("len: {}", particles.len());
 
-        let particle_tree = QuadTree::new(Rectangle::new(SmallVec2::new(), HEIGHT as f32));
+        let particle_tree = QuadTree::new(Rectangle::new(vec2f(0.0, 0.0), HEIGHT as f32));
 
         Self {
             particle_tree,
@@ -462,31 +342,39 @@ impl World {
         }
     }
 
-    fn rebuild_tree(&mut self, counter: &mut Counting) {
-        let mut new_particle_tree = QuadTree::new(Rectangle::new(SmallVec2::new(), HEIGHT as f32));
+    // Rebuild parameter temporary
+    fn rebuild_tree(&mut self, counter: &mut Counting, rebuild: bool) {
+        if rebuild {
+            let new_particle_tree = QuadTree::new(Rectangle::new(vec2f(0.0, 0.0), HEIGHT as f32));
+            self.particle_tree = new_particle_tree;
+        } else {
+            self.particle_tree.empty();
+        }
 
-        let size = self.particle_tree.empty();
-
-        println!("tree size: {}", size);
+        //println!("tree size: {}", size);
         self.particles
             .retain(|particle| within_bounds(&particle.position));
 
         for particle in self.particles.iter() {
-            self.particle_tree.insert(particle.clone());
-            new_particle_tree.insert(particle.clone())
+            self.particle_tree.insert(particle.into());
+            //new_particle_tree.insert(particle.clone().into())
         }
-        let tpruned = new_particle_tree.prune();
-        println!("expected tree size: {}", new_particle_tree.empty());
+        //let tpruned = new_particle_tree.prune();
+        //println!("expected tree size: {}", new_particle_tree.empty());
 
         let timer = Instant::now();
 
         self.particle_tree.calculate_gravity();
 
         // Get rid of empty nodes
-        let pruned = self.particle_tree.prune();
+        if !rebuild {
+            self.particle_tree.prune();
+        }
+        //let new_size = self.test_recurse(&self.particle_tree);
 
-        println!("pruned: {}", pruned);
-        println!("tpruned: {}", tpruned);
+        //println!("pruned: {}", pruned);
+        //println!("tpruned: {}", tpruned);
+        //println!("new_size: {}", new_size);
 
         counter.calculate_gravity += timer.elapsed().as_secs_f64();
 
@@ -494,14 +382,20 @@ impl World {
     }
 
     #[inline(always)]
-    fn sum_gravity(particle: &Particle, tree: &QuadTree, accel: &mut Vec2) {
+    fn sum_gravity(particle: &SmallParticle, tree: &QuadTree, accel: &mut Vec2) {
         match &tree.tree_type {
             QuadTreeType::Leaf { count: _, children } => {
                 for point in children.iter().flatten() {
-                    calculate_gravity(&particle.position, &point.position, accel, point.weight as f32);
+                    calculate_gravity(
+                        &particle.position,
+                        &point.position,
+                        accel,
+                        point.weight as f32,
+                    );
                 }
             }
             QuadTreeType::Root {
+                flags: _,
                 total_mass,
                 children,
             } => {
@@ -509,7 +403,7 @@ impl World {
                     return;
                 }
                 if !tree.boundary.contains(&particle.position)
-                    && (tree.boundary.height2 as f64)
+                    && tree.boundary.height2
                         < dist2(&particle.position, &tree.center_of_gravity) * THETA * THETA
                 {
                     calculate_gravity(
@@ -527,18 +421,18 @@ impl World {
         }
     }
 
-    fn update(&mut self, delta: f64, counter: &mut Counting){
+    fn update(&mut self, delta: f32, counter: &mut Counting, rebuild: bool) {
         let mut timer = Instant::now();
-        self.rebuild_tree(counter);
+        self.rebuild_tree(counter, rebuild);
         counter.build_tree += timer.elapsed().as_secs_f64();
         timer = Instant::now();
         let acceleration: Vec<Vec2> = self
             .particles
             .par_iter()
-            .with_min_len(5000)
+            .with_min_len(4000)
             .map(|particle| {
-                let mut accel = Vec2::new();
-                Self::sum_gravity(particle, &self.particle_tree, &mut accel);
+                let mut accel = vec2f(0.0, 0.0);
+                Self::sum_gravity(&particle.clone().into(), &self.particle_tree, &mut accel);
 
                 accel
             })
@@ -546,93 +440,10 @@ impl World {
         counter.sum_gravity += timer.elapsed().as_secs_f64();
         timer = Instant::now();
         for (idx, particle) in self.particles.iter_mut().enumerate() {
-            particle.velocity += &acceleration[idx] * delta;
-            let velo = particle.velocity.mul(delta);
+            particle.velocity += acceleration[idx] * delta;
+            let velo = particle.velocity * delta;
             particle.position += velo;
         }
         counter.post_calculations += timer.elapsed().as_secs_f64();
-    }
-
-}
-
-#[allow(dead_code)]
-fn draw_tree(node: &QuadTree, frame: &mut [u8]) {
-    if node.get_total_mass() > 3000 {
-        for x in [
-            (node.boundary.offset.x as usize),
-            ((node.boundary.offset.x + node.boundary.height - 1.0) as usize),
-        ] {
-            for y in (node.boundary.offset.y as usize)
-                ..((node.boundary.offset.y + node.boundary.height) as usize)
-            {
-                let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-                frame[offset] = 0xff; // R
-                frame[offset + 1] = 0xff; // G
-                frame[offset + 2] = 0xff; // B
-                frame[offset + 3] = 0xff; // A
-            }
-        }
-        for x in (node.boundary.offset.x as usize)
-            ..((node.boundary.offset.x + node.boundary.height) as usize)
-        {
-            for y in [
-                (node.boundary.offset.y as usize),
-                ((node.boundary.offset.y + node.boundary.height - 1.0) as usize),
-            ] {
-                let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-                frame[offset] = 0xff; // R
-                frame[offset + 1] = 0xff; // G
-                frame[offset + 2] = 0xff; // B
-                frame[offset + 3] = 0xff; // A
-            }
-        }
-        match &node.tree_type {
-            QuadTreeType::Leaf {
-                count: _,
-                children: _,
-            } => {
-                // we done here boys
-            }
-            QuadTreeType::Root {
-                total_mass: _,
-                children,
-            } => {
-                for child in children.iter().flatten() {
-                    draw_tree(child, frame);
-                }
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn draw_weights(node: &QuadTree, frame: &mut [u8]) {
-    if node.get_total_mass() > 3000 {
-        let x = node.center_of_gravity.x;
-        let y = node.center_of_gravity.y;
-        let offset = ((y as u32 * HEIGHT) + x as u32) as usize * 4;
-        if offset >= 8294400 {
-            return;
-        }
-        frame[offset] = 0; // R
-        frame[offset + 1] = 0xff; // G
-        frame[offset + 2] = 0; // B
-        frame[offset + 3] = 0xff; // A
-        match &node.tree_type {
-            QuadTreeType::Leaf {
-                count: _,
-                children: _,
-            } => {
-                // we done here boys
-            }
-            QuadTreeType::Root {
-                total_mass: _,
-                children,
-            } => {
-                for child in children.iter().flatten() {
-                    draw_weights(child, frame);
-                }
-            }
-        }
     }
 }
