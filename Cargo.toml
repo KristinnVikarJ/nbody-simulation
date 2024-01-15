@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.release]
-lto = true
+#lto = true
 #strip = true
 debug = true
 panic = "abort"
@@ -14,9 +14,9 @@ opt-level = 3
 [dependencies]
 env_logger = "0.10.0"
 error-iter = "0.4.1"
+fastrand = "2.0.1"
 flume = "0.11.0"
 log = "0.4.20"
-numquant = "0.2.0"
 pathfinder_geometry = "0.5.1"
 pixels = "0.13.0"
 rand = "0.8.5"

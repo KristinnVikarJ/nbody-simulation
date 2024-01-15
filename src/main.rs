@@ -5,6 +5,7 @@ use pathfinder_geometry::vector::{vec2f, Vector2F as Vec2};
 use quad_tree::{QuadTree, QuadTreeType};
 use rand::distributions::Uniform;
 use rayon::iter::IndexedParallelIterator;
+use std::f32::consts::TAU;
 use std::thread::spawn;
 use std::time::Instant;
 use std::{mem, ops};
@@ -31,8 +32,8 @@ use crate::quad_tree::Rectangle;
 const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f32 = 0.05; // Multiplier of current step size, Lower = higher quality
-const THETA: f32 = 2.0; // Represents ratio of width/distance, Lower = higher quality
+const STEP_SIZE: f32 = 0.1; // Multiplier of current step size, Lower = higher quality
+const THETA: f32 = 3.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
     particle_tree: QuadTree,
@@ -263,6 +264,22 @@ fn make_plummer(n: u32, seed: u32, center_mass: u32) -> Vec<Particle> {
     particles
 }
 
+fn rand_disc() -> Vec2 {
+    let theta = fastrand::f32() * TAU;
+    Vec2::new(theta.cos(), theta.sin()) * fastrand::f32()
+}
+
+fn rand_body(offset: Vec2) -> Particle {
+    let pos = rand_disc();
+    let vel = rand_disc();
+
+    Particle {
+        position: (pos*25000.0)+offset,
+        velocity: vel,
+        weight: 1
+    }
+}
+
 fn rotate_right(vec: &Vec2) -> Vec2 {
     vec2f(vec.y(), -vec.x())
 }
@@ -270,6 +287,7 @@ fn rotate_right(vec: &Vec2) -> Vec2 {
 impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
+        /*
         let mut rng = rand::thread_rng();
         let sample = Uniform::new(0f32, HEIGHT as f32);
         let circle1 = vec2f(35000.0, 35000.0);
@@ -286,7 +304,6 @@ impl World {
         });
 
         let c1lenr2 = 15000000.0;
-        /*
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
                 let pos = Vec2 {
@@ -307,7 +324,7 @@ impl World {
                 }
             }
         }*/
-
+        /*
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
                 let pos = vec2f(x as f32 * 14.0, y as f32 * 14.0);
@@ -324,13 +341,16 @@ impl World {
                     });
                 }
             }
-        }
-        for _ in 0..1_000_000 {
+        }*/
+        let offset = vec2f(50000.0, 50000.0);
+        for _ in 0..10_000 {
+            particles.push(rand_body(offset));
+            /*
             particles.push(Particle {
                 position: vec2f(rng.sample(sample), rng.sample(sample)),
                 velocity: vec2f(0.0, 0.0),
                 weight: 1,
-            });
+            });*/
         }
         println!("len: {}", particles.len());
 
@@ -429,7 +449,7 @@ impl World {
         let acceleration: Vec<Vec2> = self
             .particles
             .par_iter()
-            .with_min_len(4000)
+            .with_min_len(6250)
             .map(|particle| {
                 let mut accel = vec2f(0.0, 0.0);
                 Self::sum_gravity(&particle.clone().into(), &self.particle_tree, &mut accel);
