@@ -1,4 +1,4 @@
-use std::{mem, hint};
+use std::{hint, mem};
 
 use pathfinder_geometry::vector::vec2f;
 
@@ -175,7 +175,7 @@ impl QuadTree {
                 let vert_half = self.boundary.offset.y() + half_height;
                 let north = point.position.y() > vert_half;
                 let west = point.position.x() > hori_half;
-                
+
                 let child = ((north as u8) << 1) + west as u8;
 
                 if *flags & 1 << child == 0 {
@@ -184,26 +184,22 @@ impl QuadTree {
                         1 => self.boundary.offset(half_height, 0.0),
                         2 => self.boundary.offset(0.0, half_height),
                         3 => self.boundary.offset(half_height, half_height),
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     };
 
-                    children[child as usize] = Some(QuadTree::new(Rectangle::new(
-                        offset,
-                        half_height,
-                    )));
+                    children[child as usize] =
+                        Some(QuadTree::new(Rectangle::new(offset, half_height)));
 
                     *flags |= 1 << child;
                 }
-                
+
                 // We're guaranteed to know that children[child] exists, since the flag is set.
                 unsafe {
                     match &mut children[child as usize] {
                         Some(child) => {
                             child.insert(point);
-                        },
-                        None => {
-                            hint::unreachable_unchecked()
                         }
+                        None => hint::unreachable_unchecked(),
                     }
                 }
             }

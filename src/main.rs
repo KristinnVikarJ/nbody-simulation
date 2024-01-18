@@ -1,9 +1,10 @@
+mod bvh_tree;
 mod quad_tree;
 
+use bvh_tree::BVHTree;
 use flume::{Receiver, Sender};
 use pathfinder_geometry::vector::{vec2f, Vector2F as Vec2};
 use quad_tree::{QuadTree, QuadTreeType};
-use rand::distributions::Uniform;
 use rayon::iter::IndexedParallelIterator;
 use std::f32::consts::TAU;
 use std::thread::spawn;
@@ -16,7 +17,6 @@ use error_iter::ErrorIter as _;
 use jemallocator::Jemalloc;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
-use rand::Rng;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
@@ -32,7 +32,7 @@ use crate::quad_tree::Rectangle;
 const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
-const STEP_SIZE: f32 = 0.1; // Multiplier of current step size, Lower = higher quality
+const STEP_SIZE: f32 = 1.0; // Multiplier of current step size, Lower = higher quality
 const THETA: f32 = 3.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
@@ -76,6 +76,7 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
 #[derive(Debug, Clone)]
 struct Counting {
     build_tree: f64,
+    build_bvh: f64,
     calculate_gravity: f64, // part of build_tree
     sum_gravity: f64,
     post_calculations: f64,
@@ -115,6 +116,7 @@ fn main() -> Result<(), Error> {
         let mut updates: u64 = 0;
         let mut counter = Counting {
             build_tree: 0.0,
+            build_bvh: 0.0,
             calculate_gravity: 0.0,
             post_calculations: 0.0,
             sum_gravity: 0.0,
@@ -201,6 +203,7 @@ pub struct Particle {
     weight: u32,
 }
 
+#[derive(Clone, Debug)]
 pub struct SmallParticle {
     position: Vec2,
     weight: u32,
@@ -255,15 +258,6 @@ fn calculate_gravity(particle1: &Vec2, particle2: &Vec2, accel: &mut Vec2, force
     *accel += (diff * force) / (sum * distance);
 }
 
-fn make_plummer(n: u32, seed: u32, center_mass: u32) -> Vec<Particle> {
-    let total_mass = n + center_mass;
-    let mut particles = Vec::with_capacity(n as usize);
-    for i in 0..n {
-        let mass = total_mass / n;
-    }
-    particles
-}
-
 fn rand_disc() -> Vec2 {
     let theta = fastrand::f32() * TAU;
     Vec2::new(theta.cos(), theta.sin()) * fastrand::f32()
@@ -274,9 +268,9 @@ fn rand_body(offset: Vec2) -> Particle {
     let vel = rand_disc();
 
     Particle {
-        position: (pos*25000.0)+offset,
+        position: (pos * 25000.0) + offset,
         velocity: vel,
-        weight: 1
+        weight: 1,
     }
 }
 
@@ -364,6 +358,20 @@ impl World {
 
     // Rebuild parameter temporary
     fn rebuild_tree(&mut self, counter: &mut Counting, rebuild: bool) {
+        let timer = Instant::now();
+        let bvh_test = BVHTree::from(
+            self
+                .particles
+                .iter()
+                .map(|part| SmallParticle {
+                    position: part.position.clone(),
+                    weight: part.weight,
+                })
+                .collect(),
+        );
+        counter.build_bvh += timer.elapsed().as_secs_f64();
+        //println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA{:?}BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", bvh_test);
+
         if rebuild {
             let new_particle_tree = QuadTree::new(Rectangle::new(vec2f(0.0, 0.0), HEIGHT as f32));
             self.particle_tree = new_particle_tree;
@@ -449,7 +457,7 @@ impl World {
         let acceleration: Vec<Vec2> = self
             .particles
             .par_iter()
-            .with_min_len(6250)
+            .with_min_len(1250)
             .map(|particle| {
                 let mut accel = vec2f(0.0, 0.0);
                 Self::sum_gravity(&particle.clone().into(), &self.particle_tree, &mut accel);
