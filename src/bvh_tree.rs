@@ -64,16 +64,16 @@ impl BVHTree<'_> {
             offset: min,
             size: max - min,
         };
-        let halved = sum.div(points.len() as f32) / 2.0;
+        let halved = sum.div(points.len() as f32);
 
-        //let halved = bounds.size / 2.0;
         let (left, right): (&mut [Particle], &mut [Particle]);
-        if halved.x() > halved.y() {
-            let split_point = halved.x() + bounds.offset.x();
-            (left, right) = partition(points, |part| part.position.x() > split_point);
+        let half_len = points.len() / 2;
+        let hori = half_len.abs_diff(points.iter().filter(|p| p.position.x() > halved.x()).count());
+        let vert = half_len.abs_diff(points.iter().filter(|p| p.position.y() > halved.y()).count());
+        if vert > hori {
+            (left, right) = partition(points, |part| part.position.x() > halved.x());
         } else {
-            let split_point = halved.y() + bounds.offset.y();
-            (left, right) = partition(points, |part| part.position.y() > split_point);
+            (left, right) = partition(points, |part| part.position.y() > halved.y());
         }
         let left_leaf = if left.len() > TARGET_POINTS {
             BVHTree::from(left)
