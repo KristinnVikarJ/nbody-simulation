@@ -32,7 +32,7 @@ const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
 const STEP_SIZE: f32 = 0.1; // Multiplier of current step size, Lower = higher quality
-const THETA: f32 = 1.0; // Represents ratio of width/distance, Lower = higher quality
+const THETA: f32 = 50.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
     particles: Vec<Particle>,
@@ -347,7 +347,7 @@ impl World {
 
     #[inline(always)]
     fn bvh_sum_gravity(particle: &SmallParticle, tree: &BVHTree, accel: &mut Vec2) {
-        match &tree {
+        match tree {
             BVHTree::Leaf {
                 boundary: _,
                 children,
@@ -367,11 +367,8 @@ impl World {
                 total_mass,
                 children,
             } => {
-                if *total_mass == 0 {
-                    return;
-                }
                 if !boundary.contains(&particle.position)
-                    && boundary.size.x() * boundary.size.y()
+                    && {let tmp = boundary.size.max(boundary.size.yx()); tmp.x()*tmp.y()}
                         < dist2(&particle.position, &center_of_gravity) * THETA * THETA
                 {
                     calculate_gravity(
