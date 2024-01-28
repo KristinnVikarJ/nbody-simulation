@@ -1,11 +1,11 @@
 mod bvh_tree;
-mod quad_tree;
 
 use bvh_tree::BVHTree;
 use flume::{Receiver, Sender};
 use pathfinder_geometry::vector::{vec2f, Vector2F as Vec2};
-use quad_tree::{QuadTree, QuadTreeType};
-use rayon::iter::IndexedParallelIterator;
+use rand::Rng;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, IntoParallelIterator};
+use std::borrow::Borrow;
 use std::f32::consts::TAU;
 use std::thread::spawn;
 use std::time::Instant;
@@ -27,16 +27,14 @@ use winit_input_helper::WinitInputHelper;
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-use crate::quad_tree::Rectangle;
 
 const HEIGHT: u32 = 100_000;
 const RENDER_HEIGHT: u32 = 1250;
 const PARTICLE_COUNT: usize = 10_000;
 const STEP_SIZE: f32 = 0.1; // Multiplier of current step size, Lower = higher quality
-const THETA: f32 = 2.5; // Represents ratio of width/distance, Lower = higher quality
+const THETA: f32 = 1.0; // Represents ratio of width/distance, Lower = higher quality
 
 struct World {
-    particle_tree: QuadTree,
     particles: Vec<Particle>,
 }
 
@@ -75,9 +73,7 @@ fn draw(particles: &Vec<Particle>, frame: &mut [u8]) {
 
 #[derive(Debug, Clone)]
 struct Counting {
-    build_tree: f64,
     build_bvh: f64,
-    calculate_gravity: f64, // part of build_tree
     sum_gravity: f64,
     post_calculations: f64,
 }
@@ -115,9 +111,7 @@ fn main() -> Result<(), Error> {
         let mut world = World::new();
         let mut updates: u64 = 0;
         let mut counter = Counting {
-            build_tree: 0.0,
             build_bvh: 0.0,
-            calculate_gravity: 0.0,
             post_calculations: 0.0,
             sum_gravity: 0.0,
         };
@@ -206,14 +200,14 @@ pub struct Particle {
 #[derive(Clone, Debug)]
 pub struct SmallParticle {
     position: Vec2,
-    weight: u32,
+    //weight: u32,
 }
 
 impl From<Particle> for SmallParticle {
     fn from(val: Particle) -> SmallParticle {
         SmallParticle {
             position: val.position,
-            weight: val.weight,
+            //weight: val.weight,
         }
     }
 }
@@ -221,7 +215,7 @@ impl From<&Particle> for SmallParticle {
     fn from(val: &Particle) -> SmallParticle {
         SmallParticle {
             position: val.position,
-            weight: val.weight,
+            //weight: val.weight,
         }
     }
 }
@@ -281,11 +275,10 @@ fn rotate_right(vec: &Vec2) -> Vec2 {
 impl World {
     fn new() -> Self {
         let mut particles = Vec::with_capacity(PARTICLE_COUNT);
-        /*
         let mut rng = rand::thread_rng();
-        let sample = Uniform::new(0f32, HEIGHT as f32);
         let circle1 = vec2f(35000.0, 35000.0);
         let circle2 = vec2f(60000.0, 60000.0);
+        let c1lenr2 = 15000000.0;
         particles.push(Particle {
             position: circle1.clone(),
             velocity: vec2f(200.0, 250.0),
@@ -296,8 +289,9 @@ impl World {
             velocity: vec2f(0.0, 0.0),
             weight: 750_000,
         });
+        /*
+        let sample = Uniform::new(0f32, HEIGHT as f32);
 
-        let c1lenr2 = 15000000.0;
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
                 let pos = Vec2 {
@@ -318,7 +312,7 @@ impl World {
                 }
             }
         }*/
-        /*
+        /**/
         for x in 0..((HEIGHT / 14) - 1) {
             for y in 0..((HEIGHT / 14) - 1) {
                 let pos = vec2f(x as f32 * 14.0, y as f32 * 14.0);
@@ -335,7 +329,7 @@ impl World {
                     });
                 }
             }
-        }*/
+        }
         let offset = vec2f(50000.0, 50000.0);
         for _ in 0..100_000 {
             particles.push(rand_body(offset));
@@ -348,18 +342,16 @@ impl World {
         }
         println!("len: {}", particles.len());
 
-        let particle_tree = QuadTree::new(Rectangle::new(vec2f(0.0, 0.0), HEIGHT as f32));
-
-        Self {
-            particle_tree,
-            particles,
-        }
+        Self { particles }
     }
 
     #[inline(always)]
     fn bvh_sum_gravity(particle: &SmallParticle, tree: &BVHTree, accel: &mut Vec2) {
         match &tree {
-            BVHTree::Leaf { boundary: _, children } => {
+            BVHTree::Leaf {
+                boundary: _,
+                children,
+            } => {
                 for point in children.iter() {
                     calculate_gravity(
                         &particle.position,
@@ -379,7 +371,7 @@ impl World {
                     return;
                 }
                 if !boundary.contains(&particle.position)
-                    && boundary.size.x()*boundary.size.y()
+                    && boundary.size.x() * boundary.size.y()
                         < dist2(&particle.position, &center_of_gravity) * THETA * THETA
                 {
                     calculate_gravity(
@@ -389,9 +381,8 @@ impl World {
                         *total_mass as f32,
                     );
                 } else {
-                    for child in children.iter() {
-                        Self::bvh_sum_gravity(particle, child, accel);
-                    }
+                    Self::bvh_sum_gravity(particle, &children[0], accel);
+                    Self::bvh_sum_gravity(particle, &children[1], accel);
                 }
             }
         }
@@ -399,30 +390,29 @@ impl World {
 
     fn update(&mut self, delta: f32, counter: &mut Counting) {
         let mut timer = Instant::now();
-        let mut small_particles = self
-        .particles
-        .iter()
-        .map(|part| SmallParticle {
-            position: part.position.clone(),
-            weight: part.weight,
-        })
-        .collect::<Vec<SmallParticle>>(); 
-        let mut bvh_test = BVHTree::from(
-            &mut small_particles,
-        );
+        /*let mut small_particles = self
+            .particles
+            .iter()
+            .map(|part| SmallParticle {
+                position: part.position.clone(),
+                weight: part.weight,
+            })
+            .collect::<Vec<SmallParticle>>();*/
+        let cloned = self.particles.clone();
+        
+        let mut bvh_test = BVHTree::from(self.particles.as_mut());
         bvh_test.calculate_gravity();
         counter.build_bvh += timer.elapsed().as_secs_f64();
 
         timer = Instant::now();
-        let acceleration: Vec<Vec2> = self
-            .particles
+
+        let acceleration: Vec<Vec2> = cloned
             .par_iter()
-            .with_min_len(2500)
+            .with_min_len(5000)
             .map(|particle| {
                 let mut accel = vec2f(0.0, 0.0);
 
                 Self::bvh_sum_gravity(&particle.clone().into(), &bvh_test, &mut accel);
-                //Self::sum_gravity(&particle.clone().into(), &self.particle_tree, &mut accel);
 
                 accel
             })
